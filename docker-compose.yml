@@ -1,0 +1,25 @@
+# Local development infrastructure only. Never use these settings in production.
+#
+# PostgreSQL is NOT run from Docker: GSC Peoples uses the native PostgreSQL 18 service
+# on localhost:5432 (see docs/development/environment.md). Only Redis runs here, and only if
+# you do not have Redis available natively.
+name: gsc-peoples
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: gsc-peoples-redis
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
+    ports:
+      - '${REDIS_PORT:-6379}:6379'
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  redis_data:

@@ -1,0 +1,654 @@
+// HR database (hr_db). Independent from the Project and Sales databases.
+//
+// DATA OWNERSHIP RULE: every HR table EXCEPT `User` carries a non-null `companyId`
+// referencing `Company`, and every query MUST filter by it. `User` is the deliberate
+// global identity record (maps to Grow Spark Central Authentication; no credentials).
+//
+// CROSS-COMPANY INTEGRITY: every reference between company-owned tables is a composite
+// foreign key (companyId, xId) -> target (companyId, id), so a row can never point at
+// another company's row, even if application code has a bug.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+}
+
+enum MembershipStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+  REVOKED
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+enum EmploymentStatus {
+  ONBOARDING
+  ACTIVE
+  ON_LEAVE
+  ON_NOTICE
+  INACTIVE
+  TERMINATED
+}
+
+enum EmployeeAuditAction {
+  CREATED
+  UPDATED
+  DEPARTMENT_CHANGED
+  MANAGER_CHANGED
+  STATUS_CHANGED
+  INVITATION_SENT
+  INVITATION_RESENT
+  INVITATION_ACTIVATED
+  ONBOARDING_UPDATED
+  ATTENDANCE_CORRECTED
+  LEAVE_APPLIED
+  LEAVE_APPROVED
+  LEAVE_REJECTED
+  LEAVE_CANCELLED
+  DOCUMENT_UPLOADED
+  DOCUMENT_DELETED
+}
+
+enum OnboardingAssigneeType {
+  HR
+  EMPLOYEE
+}
+
+enum AttendanceCorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LeaveDayType {
+  FULL_DAY
+  HALF_DAY
+}
+
+enum LeaveHalfSession {
+  FIRST_HALF
+  SECOND_HALF
+}
+
+enum DocumentCategory {
+  ID_PROOF
+  CONTRACT
+  OFFER_LETTER
+  CERTIFICATE
+  OTHER
+  POLICY
+  HANDBOOK
+  FORM
+}
+
+model Company {
+  id            String   @id @default(uuid())
+  name          String
+  logoUrl       String?
+  timezone      String   @default("UTC")
+  workingDays   Int[]    @default([1, 2, 3, 4, 5])
+  workStartTime String   @default("09:00")
+  workEndTime   String   @default("18:00")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  memberships            CompanyMembership[]
+  roles                  Role[]
+  rolePermissions        RolePermission[]
+  departments            Department[]
+  designations           Designation[]
+  employees              Employee[]
+  employeeAudits         EmployeeAuditLog[]
+  employeeNumberSequence EmployeeNumberSequence?
+  holidays               Holiday[]
+  onboardingTemplates    OnboardingTemplateTask[]
+  onboardingTasks        OnboardingTask[]
+  attendanceRecords      AttendanceRecord[]
+  attendanceCorrections  AttendanceCorrection[]
+  leaveTypes             LeaveType[]
+  leaveBalances          LeaveBalance[]
+  leaveRequests          LeaveRequest[]
+  documents              EmployeeDocument[]
+  notifications          Notification[]
+  sessions               UserSession[]
+  passwordResets         PasswordResetToken[]
+  invitations            InvitationToken[]
+  auditLogs              AuditLog[]
+
+  @@map("companies")
+}
+
+// Global identity (no companyId). If multiple identity providers are ever supported,
+// replace `externalId @unique` with `@@unique([issuer, externalId])` (additive migration).
+model User {
+  id              String     @id @default(uuid())
+  externalId      String     @unique // subject id issued by Central Authentication or local auth
+  email           String
+  name            String?
+  passwordHash    String?
+  passwordVersion Int        @default(1)
+  status          UserStatus @default(ACTIVE)
+  lastLoginAt     DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  memberships     CompanyMembership[]
+  employeeAudits  EmployeeAuditLog[]
+  auditLogs       AuditLog[]
+  sessions        UserSession[]
+  passwordResets  PasswordResetToken[]
+  invitations     InvitationToken[]
+  notifications   Notification[]
+  attendanceReviews AttendanceCorrection[] @relation("AttendanceCorrectionReviewer")
+  leaveApprovals    LeaveRequest[]         @relation("LeaveRequestApprover")
+
+  @@unique([email])
+  @@index([email])
+  @@map("users")
+}
+
+model Role {
+  id          String   @id @default(uuid())
+  companyId   String
+  key         String // SUPER_ADMIN | HR_ADMIN | MANAGER | EMPLOYEE (company-level roles)
+  name        String
+  description String?
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company     Company             @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  permissions RolePermission[]
+  memberships CompanyMembership[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, key])
+  @@map("roles")
+}
+
+model RolePermission {
+  id         String   @id @default(uuid())
+  companyId  String
+  roleId     String
+  permission String // from the code-defined registry, e.g. "employee:read:team"
+  createdAt  DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  role    Role    @relation(fields: [companyId, roleId], references: [companyId, id], onDelete: Cascade, onUpdate: Restrict)
+
+  @@unique([companyId, roleId, permission])
+  @@map("role_permissions")
+}
+
+model Department {
+  id          String   @id @default(uuid())
+  companyId   String
+  name        String
+  description String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employees Employee[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, name])
+  @@map("departments")
+}
+
+model Designation {
+  id        String   @id @default(uuid())
+  companyId String
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employees Employee[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, name])
+  @@map("designations")
+}
+
+model Holiday {
+  id        String   @id @default(uuid())
+  companyId String
+  date      DateTime @db.Date
+  name      String
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, id])
+  @@unique([companyId, date])
+  @@index([companyId, date])
+  @@map("holidays")
+}
+
+model EmployeeNumberSequence {
+  id        String   @id @default(uuid())
+  companyId String   @unique
+  nextValue Int      @default(1)
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@map("employee_number_sequences")
+}
+
+model CompanyMembership {
+  id         String           @id @default(uuid())
+  companyId  String
+  userId     String
+  roleId     String
+  employeeId String? // this user's own employee profile in this company, if any
+  status     MembershipStatus @default(INVITED)
+  invitedAt  DateTime         @default(now())
+  joinedAt   DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
+
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user        User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role        Role              @relation(fields: [companyId, roleId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  employee    Employee?         @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  invitations InvitationToken[]
+
+  @@unique([companyId, userId]) // one membership per user per company
+  @@unique([companyId, employeeId]) // an employee profile maps to at most one user
+  @@index([userId]) // "which companies does this user belong to"
+  @@index([companyId, roleId]) // members by role + FK support
+  @@map("company_memberships")
+}
+
+model Employee {
+  id               String           @id @default(uuid())
+  companyId        String
+  employeeNumber   String
+  firstName        String
+  lastName         String
+  workEmail        String?
+  phone            String?
+  address          String?
+  emergencyContact String?
+  jobTitle         String?
+  designationId    String?
+  employmentType   EmploymentType   @default(FULL_TIME)
+  status           EmploymentStatus @default(ONBOARDING)
+  hireDate         DateTime?        @db.Date
+  joiningDate      DateTime?        @db.Date
+  terminationDate  DateTime?        @db.Date
+  exitDate         DateTime?        @db.Date
+  departmentId     String?
+  managerId        String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  company          Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  department       Department?            @relation(fields: [companyId, departmentId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  designation      Designation?           @relation(fields: [companyId, designationId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  manager          Employee?              @relation("ReportingLine", fields: [companyId, managerId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  reports          Employee[]             @relation("ReportingLine")
+  membership       CompanyMembership?
+  auditLogs        EmployeeAuditLog[]
+  onboardingTasks  OnboardingTask[]
+  attendance       AttendanceRecord[]
+  attendanceCorrections AttendanceCorrection[]
+  leaveBalances    LeaveBalance[]
+  leaveRequests    LeaveRequest[]
+  documents        EmployeeDocument[]     @relation("EmployeeDocuments")
+
+  @@unique([companyId, id])
+  @@unique([companyId, employeeNumber])
+  @@unique([companyId, workEmail])
+  @@index([companyId, departmentId])
+  @@index([companyId, designationId])
+  @@index([companyId, managerId])
+  @@index([companyId, status])
+  @@index([companyId, lastName, firstName])
+  @@map("employees")
+}
+
+// Append-only record of changes to employee records (create, edit, department/manager
+// assignment, status change). Company-owned: carries companyId and a composite FK to the employee.
+// `changes` holds { field: { from, to } } for fields that exist in `Employee` only.
+// Never updated or deleted by the application (the candidate migration revokes UPDATE/DELETE).
+model EmployeeAuditLog {
+  id          String              @id @default(uuid())
+  companyId   String
+  employeeId  String
+  actorUserId String
+  action      EmployeeAuditAction
+  changes     Json
+  createdAt   DateTime            @default(now())
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  actor    User     @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId, createdAt])
+  @@index([companyId, createdAt])
+  @@index([actorUserId])
+  @@map("employee_audit_logs")
+}
+
+model OnboardingTemplateTask {
+  id            String                 @id @default(uuid())
+  companyId     String
+  title         String
+  dueOffsetDays Int?
+  assigneeType  OnboardingAssigneeType
+  isActive      Boolean                @default(true)
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, isActive])
+  @@map("onboarding_template_tasks")
+}
+
+model OnboardingTask {
+  id                 String                 @id @default(uuid())
+  companyId          String
+  employeeId         String
+  title              String
+  dueDate            DateTime?              @db.Date
+  assigneeType       OnboardingAssigneeType
+  assigneeEmployeeId String?
+  completed          Boolean                @default(false)
+  completedAt        DateTime?
+  completedByUserId  String?
+  createdAt          DateTime               @default(now())
+  updatedAt          DateTime               @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId])
+  @@index([companyId, completed])
+  @@map("onboarding_tasks")
+}
+
+model AttendanceRecord {
+  id                   String    @id @default(uuid())
+  companyId            String
+  employeeId           String
+  date                 DateTime  @db.Date
+  checkInAt            DateTime?
+  checkOutAt           DateTime?
+  workedMinutes        Int?
+  originalCheckInAt    DateTime?
+  originalCheckOutAt   DateTime?
+  correctionReason     String?
+  lastCorrectedAt      DateTime?
+  lastCorrectedByUserId String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@unique([companyId, employeeId, date])
+  @@index([companyId, date])
+  @@index([companyId, employeeId, date])
+  @@map("attendance_records")
+}
+
+model AttendanceCorrection {
+  id                   String                     @id @default(uuid())
+  companyId            String
+  employeeId           String
+  date                 DateTime                   @db.Date
+  proposedCheckInAt    DateTime
+  proposedCheckOutAt   DateTime
+  reason               String
+  status               AttendanceCorrectionStatus @default(PENDING)
+  reviewerId           String?
+  reviewerComment      String?
+  reviewedAt           DateTime?
+  originalCheckInAt    DateTime?
+  originalCheckOutAt   DateTime?
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  reviewer User?    @relation("AttendanceCorrectionReviewer", fields: [reviewerId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId, date])
+  @@index([companyId, status])
+  @@map("attendance_corrections")
+}
+
+model LeaveType {
+  id               String   @id @default(uuid())
+  companyId        String
+  name             String
+  annualAllocation Float    @default(0)
+  isPaid           Boolean  @default(true)
+  allowHalfDay     Boolean  @default(true)
+  isActive         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  balances      LeaveBalance[]
+  leaveRequests LeaveRequest[]
+
+  @@unique([companyId, id])
+  @@unique([companyId, name])
+  @@map("leave_types")
+}
+
+model LeaveBalance {
+  id             String   @id @default(uuid())
+  companyId      String
+  employeeId     String
+  leaveTypeId    String
+  year           Int
+  allocated      Float    @default(0)
+  adjusted       Float    @default(0)
+  used           Float    @default(0)
+  pendingReserved Float   @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee  Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  leaveType LeaveType @relation(fields: [companyId, leaveTypeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@unique([companyId, employeeId, leaveTypeId, year])
+  @@index([companyId, employeeId, year])
+  @@map("leave_balances")
+}
+
+model LeaveRequest {
+  id              String             @id @default(uuid())
+  companyId       String
+  employeeId      String
+  leaveTypeId     String
+  startDate       DateTime           @db.Date
+  endDate         DateTime           @db.Date
+  dayType         LeaveDayType       @default(FULL_DAY)
+  halfDaySession  LeaveHalfSession?
+  reason          String
+  days            Float
+  status          LeaveRequestStatus @default(PENDING)
+  approverUserId  String?
+  originalApproverUserId String?
+  decisionComment String?
+  decidedAt       DateTime?
+  cancelledAt     DateTime?
+  cancelledByUserId String?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee  Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  leaveType LeaveType @relation(fields: [companyId, leaveTypeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+  approver  User?     @relation("LeaveRequestApprover", fields: [approverUserId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId, startDate, endDate])
+  @@index([companyId, status])
+  @@index([companyId, approverUserId, status])
+  @@map("leave_requests")
+}
+
+model EmployeeDocument {
+  id               String           @id @default(uuid())
+  companyId        String
+  ownerEmployeeId  String?
+  isCompanyDocument Boolean         @default(false)
+  category         DocumentCategory @default(OTHER)
+  fileName         String
+  storedPath       String
+  mimeType         String
+  sizeBytes        Int
+  visibleToManager Boolean          @default(false)
+  uploadedByUserId String?
+  deletedAt        DateTime?
+  purgeAfterAt     DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  company Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  owner   Employee? @relation("EmployeeDocuments", fields: [companyId, ownerEmployeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, ownerEmployeeId])
+  @@index([companyId, isCompanyDocument])
+  @@index([companyId, deletedAt])
+  @@map("employee_documents")
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  companyId String
+  userId    String
+  type      String
+  title     String
+  message   String?
+  link      String?
+  isRead    Boolean  @default(false)
+  readAt    DateTime?
+  dedupeKey String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([companyId, id])
+  @@unique([companyId, dedupeKey])
+  @@index([companyId, userId, isRead, createdAt])
+  @@map("notifications")
+}
+
+model UserSession {
+  id             String    @id @default(uuid())
+  companyId      String
+  userId         String
+  tokenHash      String    @unique
+  csrfHash       String
+  expiresAt      DateTime
+  lastActivityAt DateTime  @default(now())
+  revokedAt      DateTime?
+  createdAt      DateTime  @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, userId])
+  @@index([expiresAt])
+  @@map("user_sessions")
+}
+
+model PasswordResetToken {
+  id        String    @id @default(uuid())
+  companyId String
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, userId])
+  @@map("password_reset_tokens")
+}
+
+model InvitationToken {
+  id           String    @id @default(uuid())
+  companyId    String
+  userId       String
+  membershipId String
+  tokenHash    String    @unique
+  expiresAt    DateTime
+  usedAt       DateTime?
+  revokedAt    DateTime?
+  createdAt    DateTime  @default(now())
+
+  company    Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  user       User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  membership CompanyMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, membershipId])
+  @@index([expiresAt])
+  @@map("invitation_tokens")
+}
+
+model AuditLog {
+  id        String   @id @default(uuid())
+  companyId String
+  actorId   String?
+  action    String
+  entity    String
+  entityId  String
+  oldValue  Json?
+  newValue  Json?
+  createdAt DateTime @default(now())
+
+  company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  actor   User?   @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, entity, entityId, createdAt])
+  @@index([companyId, createdAt])
+  @@map("audit_logs")
+}

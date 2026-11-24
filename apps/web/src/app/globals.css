@@ -1,0 +1,233 @@
+@import 'tailwindcss';
+@import 'tw-animate-css';
+
+/*
+ * Grow Spark Workspace design tokens (source of truth: Grow Spark Workspace Design System).
+ * Light is the default; dark is applied with <html data-theme="dark">.
+ * Never hard-code a hex value in a component: use these tokens via Tailwind classes.
+ */
+:root,
+[data-theme='light'] {
+  color-scheme: light;
+
+  --bg: #f5f2ec;
+  --surface: #fcfaf6;
+  --surface-sunken: #eeeae2;
+  --surface-hover: #f0ece5;
+  --sidebar: #26231f;
+  --sidebar-active: #3a3630;
+  --on-sidebar: #ece6db;
+  --on-sidebar-muted: #a69d8f;
+  --on-primary: #fbfaf6;
+
+  --line: #e3ddd3;
+  --line-strong: #8e867a;
+  --ink: #211e1a;
+  --ink-muted: #5e574d;
+
+  --primary: #4a5a36;
+  --primary-hover: #3d4b2c;
+  --primary-soft: #e5e9da;
+  --accent: #9a5034;
+  --accent-soft: #f3e3d8;
+  --success: #3d6b48;
+  --success-soft: #e1ecdf;
+  --warning: #855f12;
+  --warning-soft: #f4ead2;
+  --danger: #a13a2c;
+  --danger-soft: #f5e0db;
+  --info: #3b5e71;
+  --info-soft: #dfe9ee;
+  --focus-ring: #9a5034;
+
+  --data-1: #4a5a36;
+  --data-2: #9a5034;
+  --data-3: #3b5e71;
+  --data-4: #b08a3e;
+  --data-5: #7a5c7a;
+  --data-6: #7e9468;
+
+  --product-sales: #9a5034;
+  --product-projects: #4a5a36;
+  --product-people: #3b5e71;
+}
+
+[data-theme='dark'] {
+  color-scheme: dark;
+
+  --bg: #1a1917;
+  --surface: #22201d;
+  --surface-sunken: #151412;
+  --surface-hover: #2a2824;
+  --sidebar: #121110;
+  --sidebar-active: #26231f;
+  --on-sidebar: #e6e0d5;
+  --on-sidebar-muted: #958c7f;
+  --on-primary: #1a1d14;
+
+  --line: #35322d;
+  --line-strong: #77705f;
+  --ink: #ece7de;
+  --ink-muted: #aba397;
+
+  --primary: #a9b98f;
+  --primary-hover: #bac8a2;
+  --primary-soft: #2c3224;
+  --accent: #da8e6b;
+  --accent-soft: #3b2a22;
+  --success: #8ec29b;
+  --success-soft: #21302a;
+  --warning: #d8af5e;
+  --warning-soft: #3a3020;
+  --danger: #e68d7f;
+  --danger-soft: #3d2420;
+  --info: #8fb4c8;
+  --info-soft: #1f2d35;
+  --focus-ring: #da8e6b;
+
+  --data-1: #a9b98f;
+  --data-2: #da8e6b;
+  --data-3: #8fb4c8;
+  --data-4: #d8af5e;
+  --data-5: #c3a0c3;
+  --data-6: #7fa391;
+
+  --product-sales: #da8e6b;
+  --product-projects: #a9b98f;
+  --product-people: #8fb4c8;
+}
+
+:root {
+  --gs-font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+  --gs-font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --gs-radius-sm: 4px;
+  --gs-radius-md: 6px;
+  --gs-radius-lg: 10px;
+  --gs-radius-full: 999px;
+
+  /* Shadows are derived from ink so they follow the theme. */
+  --gs-shadow-sm: 0 1px 2px color-mix(in srgb, var(--ink) 8%, transparent);
+  --gs-shadow-md: 0 4px 12px -2px color-mix(in srgb, var(--ink) 14%, transparent);
+  --gs-shadow-lg: 0 12px 32px -4px color-mix(in srgb, var(--ink) 20%, transparent);
+
+  --row-height: 44px;
+  --sidebar-width: 240px;
+  --sidebar-width-collapsed: 64px;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-sunken: var(--surface-sunken);
+  --color-hover: var(--surface-hover);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-active: var(--sidebar-active);
+  --color-on-sidebar: var(--on-sidebar);
+  --color-on-sidebar-muted: var(--on-sidebar-muted);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--ink-muted);
+
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-on-primary: var(--on-primary);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-focus-ring: var(--focus-ring);
+
+  --color-data-1: var(--data-1);
+  --color-data-2: var(--data-2);
+  --color-data-3: var(--data-3);
+  --color-data-4: var(--data-4);
+  --color-data-5: var(--data-5);
+  --color-data-6: var(--data-6);
+  --color-product-sales: var(--product-sales);
+  --color-product-projects: var(--product-projects);
+  --color-product-people: var(--product-people);
+
+  /* shadcn/ui compatibility aliases (so generated components inherit the system). */
+  --color-background: var(--bg);
+  --color-foreground: var(--ink);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--ink);
+  --color-popover: var(--surface);
+  --color-popover-foreground: var(--ink);
+  --color-primary-foreground: var(--on-primary);
+  --color-muted-foreground: var(--ink-muted);
+  --color-border: var(--line);
+  --color-input: var(--line-strong);
+  --color-ring: var(--focus-ring);
+  --color-destructive: var(--danger);
+
+  --radius-sm: var(--gs-radius-sm);
+  --radius-md: var(--gs-radius-md);
+  --radius-lg: var(--gs-radius-lg);
+  --radius-xl: var(--gs-radius-lg);
+  --radius-full: var(--gs-radius-full);
+
+  --shadow-sm: var(--gs-shadow-sm);
+  --shadow-md: var(--gs-shadow-md);
+  --shadow-lg: var(--gs-shadow-lg);
+
+  --font-sans: var(--gs-font-sans);
+  --font-mono: var(--gs-font-mono);
+}
+
+/* Type scale. Weights: only 400 / 500 / 600. */
+@theme {
+  --text-display: 28px;
+  --text-display--line-height: 36px;
+  --text-display--letter-spacing: -0.01em;
+  --text-h1: 22px;
+  --text-h1--line-height: 30px;
+  --text-h1--letter-spacing: -0.005em;
+  --text-h2: 18px;
+  --text-h2--line-height: 26px;
+  --text-h3: 15px;
+  --text-h3--line-height: 22px;
+  --text-body: 14px;
+  --text-body--line-height: 22px;
+  --text-label: 13px;
+  --text-label--line-height: 18px;
+  --text-small: 13px;
+  --text-small--line-height: 20px;
+  --text-caption: 12px;
+  --text-caption--line-height: 16px;
+  --text-caption--letter-spacing: 0.02em;
+}
+
+@utility gs-num {
+  font-variant-numeric: tabular-nums;
+}
+
+@layer base {
+  body {
+    @apply bg-bg text-body text-ink antialiased;
+  }
+  :focus-visible {
+    outline: 2px solid var(--focus-ring);
+    outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}

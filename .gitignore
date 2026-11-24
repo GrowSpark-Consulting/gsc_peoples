@@ -1,0 +1,44 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# generated
+apps/api/src/database/generated/
+
+# env (never commit real credentials)
+.env
+.env.*
+!.env.example
+
+# tests
+coverage/
+playwright-report/
+test-results/
+
+# logs / OS / editor
+*.log
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+
+# local infra data
+infrastructure/**/data/
+.next-live/
+.next-live-testdb/
+.next-prod/
+.next-prod-live/
+.next-prod-noapi/
+.next-scratch/
+.next-*/
+
+# document uploads written by the local storage driver (development only)
+storage/

@@ -1,0 +1,36 @@
+{
+  "name": "gsc-peoples",
+  "version": "0.1.0",
+  "private": true,
+  "description": "GSC Peoples - HR & People CRM module of the GrowSpark Consulting Business Platform",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @gsc/web --filter @gsc/api dev",
+    "dev:web": "pnpm --filter @gsc/web dev",
+    "dev:api": "pnpm --filter @gsc/api dev",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "test:e2e": "pnpm --filter @gsc/web test:e2e",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "db:generate": "pnpm --filter @gsc/api db:generate",
+    "db:migrate": "pnpm --filter @gsc/api db:migrate",
+    "db:seed": "pnpm --filter @gsc/api db:seed",
+    "db:provision:local": "pnpm --filter @gsc/api db:provision:local",
+    "db:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/db/setup-local-db.ps1",
+    "redis:up": "docker compose up -d redis",
+    "redis:down": "docker compose stop redis",
+    "db:test:setup": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/db/setup-test-db.ps1",
+    "test:integration": "pnpm --filter @gsc/api test:integration"
+  },
+  "devDependencies": {
+    "@gsc/config": "workspace:*",
+    "prettier": "^3.6.2"
+  }
+}

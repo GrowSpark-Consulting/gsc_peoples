@@ -1,0 +1,56 @@
+# Render Blueprint for the GSC Peoples API. Frontend: Vercel (no root config needed, see docs/deployment/vercel-frontend-setup.md).
+#
+# This file only DESCRIBES the service. Nothing is created until someone connects the repository in the Render dashboard
+# (New -> Blueprint) and approves it. Variables marked `sync: false` have NO value here: Render asks for them in the
+# dashboard, so no secret or account-specific value is ever stored in git.
+#
+# Verified against the repository (not guessed):
+#   - pnpm workspace at the repo root; the API bundles @gsc/* workspace packages with tsup and starts with `node dist/server.js`.
+#   - `--prod=false`: Render sets NODE_ENV=production during the build and pnpm would otherwise skip tsup/prisma/tsx.
+#   - `db:generate` runs `prisma generate` (client directory is git-ignored) and needs no database connection.
+#   - Migrations are NEVER run by Render: no preDeployCommand. See docs/deployment/supabase-production-migration.md.
+# Key names follow Render's Blueprint spec; confirm them on the first Blueprint sync (the dashboard reports unknown keys).
+
+services:
+  - type: web
+    name: gsc-peoples-api
+    runtime: node
+    region: singapore # closest Render region to Supabase ap-south-1; Render has no India region
+    plan: starter # paid: no spin-down. Keep ONE instance (in-memory rate limiter, see docs)
+    branch: main
+    autoDeployTrigger: "off" # deploy manually until release approval
+    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @gsc/api db:generate && pnpm --filter @gsc/api build
+    startCommand: pnpm --filter @gsc/api start
+    healthCheckPath: /api/v1/health # liveness: stays 200 during a database outage so Render does not restart-loop; readiness is /api/v1/health/ready
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NODE_ENV
+        value: production
+      - key: AUTH_MODE
+        value: session
+      - key: DB_TARGET
+        value: supabase
+      - key: LOG_LEVEL
+        value: info
+      # Public CA certificate committed at the repository root; Render checks the repo out at /opt/render/project/src.
+      - key: SUPABASE_CA_CERT_PATH
+        value: /opt/render/project/src/supabase-ca.crt
+      # Documents live in a PRIVATE Supabase Storage bucket; production refuses to start with the local disk driver.
+      - key: DOCUMENT_STORAGE_DRIVER
+        value: supabase
+      - key: SUPABASE_STORAGE_BUCKET
+        value: hr-documents
+      # --- entered in the dashboard (no value in git) ---
+      - key: SUPABASE_DATABASE_URL # hr_app via the Session Pooler, ...?schema=hr   [SECRET]
+        sync: false
+      - key: SUPABASE_STORAGE_URL # https://<project-ref>.supabase.co
+        sync: false
+      - key: SUPABASE_STORAGE_SERVICE_KEY # server-side only                       [SECRET]
+        sync: false
+      - key: CORS_ORIGINS # exact web origin, e.g. https://app.example.com (no wildcard, no trailing slash)
+        sync: false
+      - key: COOKIE_DOMAIN # parent domain shared by app. and api., e.g. .example.com
+        sync: false
+    # Must NOT be set on this service: DATABASE_URL, DIRECT_URL, SUPABASE_DIRECT_URL (migration credential),
+    # TEST_*, DEV_AUTH_*, REDIS_URL, any NEXT_PUBLIC_* value.

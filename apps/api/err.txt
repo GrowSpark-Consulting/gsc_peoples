@@ -1,0 +1,14 @@
+file:///C:/Users/PC/gsc_peoples/apps/api/dist/server.js:144
+    throw new Error(`Invalid environment configuration:
+          ^
+
+Error: Invalid environment configuration:
+  - DOCUMENT_STORAGE_DRIVER: DOCUMENT_STORAGE_DRIVER=supabase is required when NODE_ENV=production (local disk does not survive a redeploy)
+    at parseEnv (file:///C:/Users/PC/gsc_peoples/apps/api/dist/server.js:144:11)
+    at file:///C:/Users/PC/gsc_peoples/apps/api/dist/server.js:155:11
+    at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)
+    at async node:internal/modules/esm/loader:643:26
+    at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:101:5)
+
+Node.js v24.19.0
