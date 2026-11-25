@@ -2,6 +2,7 @@
 
 import { useState, useSyncExternalStore, type FormEvent } from 'react';
 import { useRouter } from 'next/navigation';
+import { resetSessionCache } from '@/hooks/use-session';
 import { safeNextPath } from '@/lib/safe-next';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
@@ -35,6 +36,7 @@ export default function LoginPage() {
       });
       const body = await response.json().catch(() => undefined);
       if (!response.ok) throw new Error(body?.error?.message ?? 'Login failed');
+      resetSessionCache(); // an expired session can reach this page without a reload
       // Return to the page the server gate redirected from, but only to a same-site relative path.
       router.push(safeNextPath(new URLSearchParams(window.location.search).get('next'), window.location.origin));
       router.refresh();

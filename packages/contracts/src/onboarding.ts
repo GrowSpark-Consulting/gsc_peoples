@@ -12,7 +12,7 @@ export const onboardingTaskSchema = z.object({
   assigneeEmployeeId: z.uuid().nullable().optional(),
   completed: z.boolean(),
   completedAt: z.string().nullable(),
-  completedBy: z.string().nullable(),
+  completedByUserId: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
 });

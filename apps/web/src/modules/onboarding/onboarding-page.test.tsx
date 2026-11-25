@@ -17,7 +17,7 @@ const NEWBIE = uuid();
 const now = '2026-02-01T00:00:00.000Z';
 const task = (o: Record<string, unknown> = {}) => ({
   id: uuid(), employeeId: SELF, title: 'Sign contract', dueDate: '2026-03-01', assigneeType: 'EMPLOYEE', assigneeEmployeeId: null,
-  completed: false, completedAt: null, completedBy: null, createdAt: now, updatedAt: now, ...o,
+  completed: false, completedAt: null, completedByUserId: null, createdAt: now, updatedAt: now, ...o,
 });
 const progress = (completed: number, total: number) => ({
   total, completed, remaining: total - completed, percentage: total ? (completed / total) * 100 : 0,

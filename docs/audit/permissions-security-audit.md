@@ -20,7 +20,7 @@
 | Approve correction / leave | Full / Full / Team / — | SA/HR: `decide:all`; MGR: `decide:team`; EMP: — | Both `attendance.routes.ts` and `leave.routes.ts` use `resolveTeamEmployeeIds()` (direct + indirect) and block self-approval. | **PASS** |
 | Manual attendance correction | Full / Full / — / — | SA/HR: `attendance:manual:write`; MGR/EMP: — | `attendance.routes.ts` enforces `ATTENDANCE_CORRECT_MANUAL` and blocks self-correction. | **PASS** |
 | Leave types, balances | Full / Full / View team / Own | SA/HR: `leave:manage,read:all`; MGR: `leave:read:team`; EMP: `leave:read:self` | `leave.routes.ts` `GET /balances` & `GET /requests` use `readableIds()` (`resolveTeamEmployeeIds()`). | **PASS** |
-| Employee documents | Full / Full / Only if flagged / Own | SA/HR: `read:all`; MGR: `read:team` (`visibleToManager`); EMP: `read:self` | `canReadEmployeeDoc` uses `resolveTeamEmployeeIds()`. **Minor gap:** `GET /documents` without `?employeeId=` still filters `where.OR = [{ ownerEmployeeId: req.user!.employeeId }, { isCompanyDocument: true }]`, so Managers only see flagged team docs when querying by `?employeeId=`. | **PARTIAL** |
+| Employee documents | Full / Full / Only if flagged / Own | SA/HR: `read:all`; MGR: `read:team` (`visibleToManager`); EMP: `read:self` | `canReadEmployeeDoc` and `GET /documents` (with or without `?employeeId=`) use `resolveTeamEmployeeIds()` and enforce `visibleToManager: true`. | **PASS** |
 | Company documents | Upload / Upload / View / View | SA/HR: `company-document:write,read`; MGR/EMP: `company-document:read` | `documents.routes.ts` enforces `DOCUMENT_COMPANY_MANAGE` for upload; all active users can view/download. | **PASS** |
 | Audit logs | Full / — / — / — | SA: `audit:read`; HR/MGR/EMP: — | `settings.routes.ts` gates `/audit-logs` to `requireRole('SUPER_ADMIN')`. | **PASS** |
 
@@ -33,10 +33,11 @@
 - **Manager Privacy Leak:** Fixed in `employees.service.ts` (`forViewer()` strips `address` & `emergencyContact`) and `GET /employees/directory` (limited fields only).
 - **Team Scope Consistency:** Fixed across `leave.routes.ts`, `documents.routes.ts`, and `dashboard.routes.ts` using `resolveTeamEmployeeIds()`.
 - **Offboarding Account Disabling:** Fixed in `employees.repository.ts` (`offboard()` sets `User.status = 'DISABLED'`, `CompanyMembership.status = 'SUSPENDED'`, and revokes sessions).
+- **`GET /documents` Manager Listing Filter (`documents.routes.ts:64`):** Fixed to include `ownerEmployeeId: { in: teamIds }, visibleToManager: true` when a Manager calls `GET /documents` without `?employeeId=` (`documents.integration.test.ts:312`).
+- **Sidebar Navigation Filtering (`navigation.ts`, `app-shell.tsx`):** Fixed via `visibleNavSections()` so Employees do not see `Reports`/`Settings` and Managers do not see `Onboarding`/`Reports`/`Settings` (`top-bar.test.tsx`).
 
 ### Remaining Minor Findings
-1. **[LOW] `GET /documents` Manager Listing Filter (`documents.routes.ts:64`):** When a Manager calls `GET /documents` without `?employeeId=`, `where.OR` omits `ownerEmployeeId: { in: teamIds }`, so flagged team documents only appear when `?employeeId=` is supplied.
-2. **[LOW] Sidebar Navigation Not Filtered by Role (`apps/web/src/config/navigation.ts`):** Sidebar renders all 9 links (including `Settings`, `Reports`) to all roles; the API still enforces 403/AccessDenied on the page, so this is a UX issue rather than an auth bypass.
+- None at the code/authorization layer. (External production checks — live Supabase Storage bucket, production SMTP, Render/Vercel deployment, and Render Cron scheduling — remain outside the local repository scope.)
 
 ### Verified Security Controls
 - **Session & Cookie Security:** `gsc_session` is `httpOnly`, `sameSite: 'lax'`, `secure` in production, 8-hour `expiresAt` and 8-hour `lastActivityAt` idle timeout.

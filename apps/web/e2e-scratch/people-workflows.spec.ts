@@ -43,7 +43,7 @@ test.describe('departments, designations, hiring, invitation and onboarding (ORG
 
     await hr.goto(`/employees/${nina!.id}`);
     await hr.getByRole('button', { name: 'Send invitation' }).click();
-    await expect(hr.getByText('Invitation sent.')).toBeVisible();
+    await expect(hr.getByRole('region', { name: 'Login access' }).getByText(/An invitation has been sent\./)).toBeVisible();
     const link = await emailedLink('nina@e2e.local');
     expect(link).toContain('/accept-invitation?token=');
 

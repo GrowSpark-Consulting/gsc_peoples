@@ -44,10 +44,11 @@ export function useAsyncData<T>(key: string, load: () => Promise<T>, enabled = t
 
   const reload = useCallback(() => setNonce((n) => n + 1), []);
   const current = result?.token === token ? result : null;
+  const sameKey = result?.token.startsWith(`${key}#`) ? result : null;
   const status = !enabled ? 'idle' : !current ? 'loading' : current.ok ? 'success' : 'error';
   return {
     status,
-    data: current?.ok ? current.data : undefined,
+    data: current?.ok ? current.data : sameKey?.ok ? sameKey.data : undefined,
     error: current && !current.ok ? current.error : undefined,
     reload,
   };

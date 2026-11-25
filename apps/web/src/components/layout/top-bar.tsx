@@ -7,6 +7,7 @@ import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { Avatar } from '@/components/ui/avatar';
 import { buttonVariants } from '@/components/ui/button';
 import { useCurrentUser } from '@/hooks/use-current-user';
+import { resetSessionCache } from '@/hooks/use-session';
 import { ROLE_LABELS } from '@/lib/role-labels';
 import { cn } from '@/lib/utils';
 import { NotificationsMenu } from '@/modules/notifications/notifications-menu';
@@ -83,6 +84,8 @@ export function TopBar({
             credentials: 'include',
             headers: { 'X-CSRF-Token': csrf },
           }).catch(() => undefined);
+          // Client-side navigation keeps module state: forget this user before anyone else signs in.
+          resetSessionCache();
           router.replace('/login');
           router.refresh();
         }}

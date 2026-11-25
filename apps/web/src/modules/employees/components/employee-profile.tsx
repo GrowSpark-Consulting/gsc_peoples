@@ -56,7 +56,7 @@ export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChange
   const { caps, session, service } = useEmployeesContext();
   const query = useEmployee(id);
 
-  if (query.status === 'loading' || query.status === 'idle') {
+  if ((query.status === 'loading' && !query.data) || query.status === 'idle') {
     return (
       <div className="flex flex-col gap-4" aria-busy="true" aria-label="Loading employee profile">
         <Skeleton className="h-20 w-full" />
@@ -225,7 +225,7 @@ export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChange
         {live && isSelf && may('employee:self:edit') ? (
           <div className={wide}>
             <Card title="My contact details">
-              <MyContactForm key={e.updatedAt} employee={e} onSaved={changed} />
+              <MyContactForm employee={e} onSaved={changed} />
             </Card>
           </div>
         ) : null}

@@ -1,7 +1,7 @@
 # Production Readiness Gaps (Prioritized)
 
-**Audit Date:** 2026-11-25 (Re-audited after P0 remediation changes)  
-**Production Readiness Verdict:** **CONDITIONAL / NEAR READY** — All Critical P0 functional blockers have been resolved in code; only minor defects, a test timeout, design-system alignment, and deployment/operational steps remain.
+**Audit Date:** 2026-11-25 (Re-audited after final remediation & verification)  
+**Production Readiness Verdict:** **READY FOR STAGING** — All P0 functional, security, lint, unit, integration, and E2E code gaps are resolved; only design-system owner confirmation, minor non-blocking cleanup, and external hosting/SMTP/Supabase/Cron verification remain.
 
 ---
 
@@ -9,13 +9,10 @@
 
 | # | Priority | Severity | Req ID | Exact Gap | Affected Files / Modules | Required Fix | Dependencies | Verification Steps | Complexity |
 |---|---|---|---|---|---|---|---|---|---|
-| 1 | P0 | **Medium** | Testing / CI | **`employee-form.test.tsx` timed out under full-suite run** (`5000ms` timeout in `create > submits normalised data...`). Also `apps/web/e2e-scratch/` Playwright suite has not yet been executed in this audit. | `apps/web/src/modules/employees/components/employee-form.test.tsx`, `apps/web/e2e-scratch/` | Investigate/increase timeout or reduce render overhead in `employee-form.test.tsx`; run `pnpm test:e2e:scratch` against local scratch DB + mail sink. | — | `pnpm test` and `pnpm test:e2e:scratch` pass 100%. | Small |
-| 2 | P0 | **Medium** | DOC-004 | **`GET /documents` omits flagged team docs when `?employeeId=` is not passed.** `where.OR` only includes `ownerEmployeeId: req.user!.employeeId` and `isCompanyDocument: true`. | `apps/api/src/modules/documents/documents.routes.ts:64` | For `DOCUMENT_READ_TEAM`, include `ownerEmployeeId: { in: await resolveTeamEmployeeIds(db, req.user!.employeeId) }` in `where.OR` (still filtered by `canReadEmployeeDoc`). | — | Integration test: Manager calls `GET /documents` with no query params and receives flagged team doc. | Small |
-| 3 | P0 | **Medium** | W7, ATT-005 | **`POST /attendance/corrections` does not block dates with approved full-day leave.** PRD W7 states: *"date with approved leave blocked"*. | `apps/api/src/modules/attendance/attendance.routes.ts` | Check `leaveRequest` (`status: 'APPROVED'`, `dayType: 'FULL_DAY'`) for the requested date and return 400/409. | — | Integration test: correction request on approved full-day leave date is rejected. | Small |
-| 4 | P0 | **Medium** | Sec 6, Nav | **Sidebar shows all 9 nav items to all roles; TopBar has a `Company switcher` placeholder menu.** | `apps/web/src/config/navigation.ts`, `sidebar.tsx`, `top-bar.tsx` | Filter sidebar nav items by `session.permissions`; remove/hide `Company switcher` placeholder for single-company MVP. | — | E2E test per role confirms only permitted nav links appear. | Small |
-| 5 | P0 | **Medium** | Sec 8 (Design) | **Design system palette mismatch.** `globals.css` uses Grow Spark Workspace warm/colored tokens (`#f5f2ec`, `#4a5a36`, `#9a5034`) rather than PRD monochrome (`#090909`, `#FFFFFF`, `#F5F5F5`, `#737373`, `#E5E5E5`). | `apps/web/src/app/globals.css` | Confirm with owner whether Grow Spark Workspace theme is an approved deviation, or switch tokens to monochrome. | Owner decision | Visual check. | Medium |
-| 6 | P0 | **Low** | EMP-007 | **No DB `CHECK` constraint requiring `exitDate` when `status = 'INACTIVE'`** (enforced in app/Zod, whereas `TERMINATED` has a DB `CHECK`). | `apps/api/src/database/prisma/schema.prisma`, migrations | Add additive `CHECK ("status" <> 'INACTIVE' OR "exitDate" IS NOT NULL)` in a future migration if strict DB-level parity is desired. | — | Schema test. | Small |
-| 7 | P0 | **Low** | Ops / Cleanup | **Obsolete `candidate-migration*` folders** in `apps/api/src/database/`. | `apps/api/src/database/candidate-migration*` | Remove unused draft folders. | — | `git status`. | Small |
+| 1 | P0 | **Low** | Sec 6, Nav | **TopBar `Company switcher` placeholder button** remains in the header (`top-bar.tsx`) for single-company MVP. | `apps/web/src/components/layout/top-bar.tsx` | Remove or hide `Company switcher` for single-company MVP if not needed. | — | Visual check. | Small |
+| 2 | P0 | **Medium** | Sec 8 (Design) | **Design system palette mismatch.** `globals.css` uses Grow Spark Workspace warm/colored tokens (`#f5f2ec`, `#4a5a36`, `#9a5034`) rather than PRD monochrome (`#090909`, `#FFFFFF`, `#F5F5F5`, `#737373`, `#E5E5E5`). | `apps/web/src/app/globals.css` | Confirm with owner whether Grow Spark Workspace theme is an approved deviation, or switch tokens to monochrome. | Owner decision | Visual check. | Medium |
+| 3 | P0 | **Low** | EMP-007 | **No DB `CHECK` constraint requiring `exitDate` when `status = 'INACTIVE'`** (enforced in app/Zod, whereas `TERMINATED` has a DB `CHECK`). | `apps/api/src/database/prisma/schema.prisma`, migrations | Add additive `CHECK ("status" <> 'INACTIVE' OR "exitDate" IS NOT NULL)` in a future migration if strict DB-level parity is desired. | — | Schema test. | Small |
+| 4 | P0 | **Low** | Ops / Cleanup | **Obsolete `candidate-migration*` folders** in `apps/api/src/database/`. | `apps/api/src/database/candidate-migration*` | Remove unused draft folders. | — | `git status`. | Small |
 
 ---
 

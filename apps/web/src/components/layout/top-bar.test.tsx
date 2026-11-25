@@ -3,11 +3,11 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ROLE_PERMISSIONS } from '@gsc/contracts';
 import { titleFor, visibleNavSections } from '@/config/navigation';
+import { resetSessionCache, useSession } from '@/hooks/use-session';
 import { TopBar } from './top-bar';
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }),
-}));
+const router = vi.hoisted(() => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }));
+vi.mock('next/navigation', () => ({ useRouter: () => router }));
 
 const props = {
   title: 'Dashboard',
@@ -98,5 +98,37 @@ describe('visibleNavSections', () => {
     expect(ids(ROLE_PERMISSIONS.HR_ADMIN)).toEqual(
       expect.arrayContaining(['dashboard', 'employees', 'departments', 'attendance', 'leave', 'onboarding', 'documents', 'reports', 'settings']),
     );
+  });
+});
+
+describe('TopBar sign out', () => {
+  function SessionName() {
+    const state = useSession();
+    return <p>{state.status === 'ready' ? state.session.displayName : state.status}</p>;
+  }
+
+  it('forgets the cached session, so the next sign-in in the same tab never sees the previous user', async () => {
+    let name = 'First User';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(
+          meBody({ userId: name, companyId: 'c1', employeeId: null, name, email: 'u@dev.local', roles: ['EMPLOYEE'], permissions: [] }),
+        ),
+      ),
+    );
+    resetSessionCache();
+    const first = render(<SessionName />);
+    await screen.findByText('First User');
+    first.unmount();
+
+    const bar = render(<TopBar {...props} />);
+    screen.getByRole('button', { name: 'Sign out' }).click();
+    await waitFor(() => expect(router.replace).toHaveBeenCalledWith('/login'));
+    bar.unmount();
+
+    name = 'Second User';
+    render(<SessionName />);
+    expect(await screen.findByText('Second User')).toBeInTheDocument();
   });
 });

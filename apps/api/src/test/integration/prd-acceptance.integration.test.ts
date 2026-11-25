@@ -15,6 +15,7 @@ import {
   leaveRequestListResponseSchema,
   managerDashboardResponseSchema,
   notificationListResponseSchema,
+  onboardingListResponseSchema,
   onboardingProgressListResponseSchema,
 } from '@gsc/contracts';
 import { createMemoryMailer } from '../../integrations/mail';
@@ -530,6 +531,14 @@ describe('onboarding access and tracking (ONB-001 to ONB-005)', () => {
     expect(done.body.data.completedByUserId).toBe(user('team'));
     await api('hr', 'patch', `/onboarding/tasks/${hrs}/complete`);
     expect((await notes('sa')).filter((t) => t.startsWith('ONBOARDING_COMPLETED'))).toHaveLength(1);
+  });
+
+  it('returns a checklist the web app can read, before and after a task is completed', async () => {
+    const { mine } = await setup();
+    const checklist = async (who: string) => onboardingListResponseSchema.parse((await api(who, 'get', `/onboarding/employees/${emp('team')}/tasks`)).body);
+    expect((await checklist('team')).data).toHaveLength(2);
+    await api('team', 'patch', `/onboarding/tasks/${mine}/complete`);
+    expect((await checklist('hr')).data.find((t) => t.id === mine)).toMatchObject({ completed: true, completedByUserId: user('team') });
   });
 
   it('lists derived status and invite state, filterable, for HR of that company only', async () => {

@@ -39,7 +39,7 @@ test.describe('HR attendance overview and manual correction (ATT-004, ATT-007)',
     await expect(overview.getByText('Absent', { exact: true })).toHaveCount(0);
 
     // yesterday: the corrected times must already have happened whatever time the suite runs
-    await overview.getByLabel('Date').fill(companyDate(-1));
+    await page.getByRole('region', { name: 'Attendance by date' }).getByLabel('Date').fill(companyDate(-1));
     await overview.locator('tr', { hasText: 'Pia Peer' }).getByRole('button', { name: 'Correct' }).click();
     const dialog = page.getByRole('dialog');
     await expect(dialog.getByLabel(/^Employee/)).toHaveValue(empId('peer'));

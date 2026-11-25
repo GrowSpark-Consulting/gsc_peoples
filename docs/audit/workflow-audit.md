@@ -37,13 +37,13 @@
 
 ## W7. Attendance Correction
 - **PRD:** Employee requests correction within 7 days (not future, not on approved leave) -> one pending per date -> Approver (manager, else HR) notified, decides with comment -> Approval updates/creates record, keeps originals in audit log -> Employee notified. HR may correct any date with reason.
-- **Status:** **PARTIAL**
-- **Verification:** 7-day window, 1 pending per date, team scope (direct + indirect), no self-approval, original values in `AuditLog`, and notifications (`CORRECTION_REQUESTED`, `CORRECTION_APPROVED`, `CORRECTION_REJECTED`, `ATTENDANCE_CORRECTED`) all work. **Minor gap:** `POST /attendance/corrections` does not explicitly block a date that has an `APPROVED` `FULL_DAY` leave (PRD W7 exception).
+- **Status:** **COMPLETE**
+- **Verification:** 7-day window, 1 pending per date, `CORRECTION_ON_LEAVE_DATE` guard (`attendance.routes.ts:370`), team scope (direct + indirect), no self-approval, original values in `AuditLog`, and notifications (`CORRECTION_REQUESTED`, `CORRECTION_APPROVED`, `CORRECTION_REJECTED`, `ATTENDANCE_CORRECTED`) all work.
 
 ## W8. Document Upload & Access
 - **PRD:** Choose employee, category, file (PDF/PNG/JPG/DOCX, <= 10 MB) -> API checks permission, type, size; stores in private bucket (`company_id/employee_id/uuid`) -> Preview/Download returns 60-second signed URL after permission check -> Upload & delete logged.
-- **Status:** **PARTIAL**
-- **Verification:** Upload validation, 60s signed URLs, `AuditLog`, soft delete + 30-day `purgeAfterAt`, and `resolveTeamEmployeeIds()` in `canReadEmployeeDoc` work. **Minor gaps:** `GET /documents` without `?employeeId=` omits flagged team docs for Managers; `purge-documents.ts` requires a scheduled cron in production.
+- **Status:** **COMPLETE (Code) / Ops: Schedule Purge Cron**
+- **Verification:** Upload validation, 60s signed URLs, `AuditLog`, soft delete + 30-day `purgeAfterAt`, `resolveTeamEmployeeIds()` in `canReadEmployeeDoc`, and `GET /documents` Manager team listing (`documents.routes.ts:64`) all work. Operational prerequisite: schedule `dist/purge-documents.js --execute` via Render Cron in production.
 
 ## W9. Profile Update
 - **PRD:** HR/SA edits any field; Employee edits phone, address, emergency contact -> Server validates, stores, logs old/new values -> Timeline shows significant changes. Only SA changes employee ID & joining date; concurrent edit caught by `updated_at`.
