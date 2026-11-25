@@ -132,7 +132,7 @@ describe('login', () => {
   it('valid login (single membership, no companyId): sets hardened cookies and persists a hashed session', async () => {
     await seedUser({ email: 'hr@example.com', memberships: [{ companyId: COMPANY_A }] });
     const { res, cookies } = await login({ email: 'HR@Example.com', password: PASSWORD });
-    expect(res.status).toBe(200);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.data).toMatchObject({ companyId: COMPANY_A, roleKey: 'HR_ADMIN' });
     expect(rawSetCookie(res, 'gsc_session')).toMatch(/HttpOnly/i);
     expect(rawSetCookie(res, 'gsc_session')).toMatch(/SameSite=Lax/i);
@@ -187,7 +187,7 @@ describe('login', () => {
   it('a user whose only membership is the non-UUID dev company can still log in (no companyId sent) and is scoped to it', async () => {
     await seedUser({ email: 'devco@example.com', memberships: [{ companyId: COMPANY_DEV }] });
     const { res, cookies } = await login({ email: 'devco@example.com', password: PASSWORD });
-    expect(res.status).toBe(200);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     expect(res.body.data.companyId).toBe(COMPANY_DEV);
     const me = await request(app).get('/api/v1/me').set('cookie', cookieHeader(cookies));
     expect(me.body.data.companyId).toBe(COMPANY_DEV);
@@ -205,7 +205,7 @@ describe('login', () => {
     const ambiguous = await login({ email: 'multi@example.com', password: PASSWORD });
     expect(ambiguous.res.status).toBe(400);
     const { res, cookies } = await login({ email: 'multi@example.com', password: PASSWORD, companyId: COMPANY_B });
-    expect(res.status).toBe(200);
+    expect(res.status, JSON.stringify(res.body)).toBe(200);
     const me = await request(app).get('/api/v1/me').set('cookie', cookieHeader(cookies)).set('x-company-id', COMPANY_A);
     expect(me.body.data.companyId).toBe(COMPANY_B); // header hint ignored
   });
