@@ -18,7 +18,7 @@ import {
   onboardingListResponseSchema,
   onboardingProgressListResponseSchema,
 } from '@gsc/contracts';
-import { createMemoryMailer } from '../../integrations/mail';
+import { createMemoryMailer, MailError } from '../../integrations/mail';
 import { connect, TEST_DB, testUrl } from './helpers';
 import { Harness, id, PASSWORD } from './api-harness';
 
@@ -509,6 +509,31 @@ describe('invitation and password reset by email (AUTH-002, AUTH-004, W4)', () =
     expect(results.map((r) => r.status).sort()).toEqual([200, 401]);
     expect((await api('team', 'get', '/me')).status).toBe(401); // sessions revoked
     expect(await q(`select 1 from hr.audit_logs where action='PASSWORD_RESET'`)).toHaveLength(1);
+  });
+
+  it('handles SMTP delivery failures safely on invitation (503 + resendable) and forgot-password (200 generic)', async () => {
+    const employeeId = await hire();
+    const originalSend = mailer.send.bind(mailer);
+    mailer.send = async () => {
+      throw new MailError('Email could not be sent (ECONNREFUSED)');
+    };
+    try {
+      const failedInvite = await api('hr', 'post', `/employees/${employeeId}/invite`);
+      expect(failedInvite.status).toBe(503);
+      expect(failedInvite.body.error.message).toMatch(/saved but the email could not be sent/i);
+      expect((await api('hr', 'get', `/employees/${employeeId}`)).body.data.invitationStatus).toBe('INVITED');
+
+      const forgot = await request(h.app).post('/api/v1/auth/forgot-password').send({ email: h.people.team!.email });
+      expect(forgot.status).toBe(200);
+      expect(forgot.body.data.message).toBe('If the account exists, a reset link has been issued.');
+    } finally {
+      mailer.send = originalSend;
+    }
+
+    const resent = await api('hr', 'post', `/employees/${employeeId}/invite`);
+    expect(resent.status).toBe(202);
+    expect(resent.body.data.status).toBe('RESENT');
+    expect((await accept(tokenFrom(mailer.outbox[0]!.text))).status).toBe(200);
   });
 });
 

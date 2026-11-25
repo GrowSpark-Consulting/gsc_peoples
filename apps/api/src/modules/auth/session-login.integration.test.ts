@@ -288,16 +288,45 @@ describe('session lifecycle', () => {
     expect((await me()).status).toBe(401);
   });
 
-  it('password reset revokes all of the user\'s sessions', async () => {
+  it('password reset revokes all of the user\'s sessions and refuses reuse of the reset token', async () => {
     const { me } = await session();
     const forgot = await request(app).post('/api/v1/auth/forgot-password').send({ email: 'hr@example.com' });
     const token = forgot.headers['x-development-reset-token'] as string;
     expect(token).toBeTruthy();
     const reset = await request(app).post('/api/v1/auth/reset-password').send({ token, password: 'a-brand-new-password' });
     expect(reset.status).toBe(200);
+    expect((await request(app).post('/api/v1/auth/reset-password').send({ token, password: 'another-new-password' })).status).toBe(401);
     expect((await me()).status).toBe(401);
     expect((await login({ email: 'hr@example.com', password: PASSWORD })).res.status).toBe(401);
     expect((await login({ email: 'hr@example.com', password: 'a-brand-new-password' })).res.status).toBe(200);
+  });
+
+  it('SMTP failures: forgot-password still answers generically (200) and invitation returns 503 without leaking SMTP errors', async () => {
+    const { createApp } = await import('../../app');
+    const { MailError } = await import('../../integrations/mail');
+    const failingMailer = {
+      driver: 'smtp' as const,
+      send: async () => {
+        throw new MailError('Email could not be sent (ECONNECTION)');
+      },
+    };
+    const mailApp = createApp({ mailer: failingMailer });
+
+    await seedUser({ email: 'hr@example.com', memberships: [{ companyId: COMPANY_A }] });
+    await admin.query(`INSERT INTO hr.roles (id,"companyId",key,name,"isSystem","updatedAt") VALUES ($1,$2,'EMPLOYEE','Employee',true,now())`, [id(), COMPANY_A]);
+    const forgot = await request(mailApp).post('/api/v1/auth/forgot-password').send({ email: 'hr@example.com' });
+    expect(forgot.status).toBe(200);
+    expect(forgot.body.data.message).toBe('If the account exists, a reset link has been issued.');
+
+    const { cookies } = await login({ email: 'hr@example.com', password: PASSWORD });
+    const invite = await request(mailApp)
+      .post('/api/v1/settings/users/invite')
+      .set('cookie', cookieHeader(cookies))
+      .set('x-csrf-token', cookies.gsc_csrf!)
+      .send({ email: 'invitee@example.com', roleKey: 'EMPLOYEE' });
+    expect(invite.status).toBe(503);
+    expect(invite.body.error.message).toMatch(/invitation was saved but the email could not be sent/i);
+    expect(invite.body.error.message).not.toContain('ECONNECTION');
   });
 });
 
