@@ -147,15 +147,19 @@ test.describe('reset password', () => {
     await page.goto(`/reset-password?token=${'x'.repeat(43)}`);
     await page.getByLabel('New password').fill(secret);
     await page.getByRole('button', { name: 'Set password' }).click();
-    await expect(formAlert(page)).toContainText('Reset link is invalid or expired');
+    // The API's 401 replaces the form with the invalid-link message and a way to request a new link.
+    await expect(page.getByRole('alert')).toContainText('invalid or has expired');
+    await expect(page.getByRole('link', { name: 'Send reset link' })).toHaveAttribute('href', '/forgot-password');
     expect(new URL(page.url()).searchParams.get('password')).toBeNull();
 
+    // A too-short password is refused in the browser, before any request.
+    await page.goto(`/reset-password?token=${'x'.repeat(43)}`);
     await page.getByLabel('New password').fill('tooshort1'); // 9 characters: below the PRD minimum of 10
     await page.getByRole('button', { name: 'Set password' }).click();
-    await expect(formAlert(page)).toContainText('Invalid reset fields');
+    await expect(formAlert(page)).toContainText('Password must be 10 to 128 characters');
     rec.expectNoLeak([secret, 'tooshort1']);
     const posts = rec.requests.filter((r) => r.url === `${API}/auth/reset-password`);
-    expect(posts.length).toBeGreaterThanOrEqual(2);
+    expect(posts).toHaveLength(1);
     expect(posts.every((p) => p.method === 'POST')).toBe(true);
   });
 
@@ -215,16 +219,19 @@ test.describe('accept invitation', () => {
     // Bad token.
     await invitee.goto(`/accept-invitation?token=${'y'.repeat(43)}`);
     await invitee.getByLabel('Password', { exact: true }).fill(secret);
+    await invitee.getByLabel('Confirm password').fill(secret);
     await invitee.getByRole('button', { name: 'Activate account' }).click();
-    await expect(formAlert(invitee)).toContainText('invalid, expired, or already used');
-    // Too-short password with a good token: refused, token not consumed.
+    await expect(invitee.getByRole('alert')).toContainText('invalid, has expired or has already been used');
+    // Too-short password with a good token: refused in the browser, token not consumed.
     await invitee.goto(`/accept-invitation?token=${token}`);
     await invitee.getByLabel('Password', { exact: true }).fill('tooshort1');
+    await invitee.getByLabel('Confirm password').fill('tooshort1');
     await invitee.getByRole('button', { name: 'Activate account' }).click();
-    await expect(formAlert(invitee)).toContainText('Invalid invitation fields');
+    await expect(formAlert(invitee)).toContainText('Password must be 10 to 128 characters');
 
     // Good token and password: account activates and a session cookie is issued.
     await invitee.getByLabel('Password', { exact: true }).fill(secret);
+    await invitee.getByLabel('Confirm password').fill(secret);
     await invitee.getByRole('button', { name: 'Activate account' }).click();
     await expect(invitee).toHaveURL(/\/dashboard$/, { timeout: 30_000 });
     const cookies = await inviteeCtx.cookies(API);

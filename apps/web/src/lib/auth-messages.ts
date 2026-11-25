@@ -19,3 +19,12 @@ export const TOKEN_MIN = 32;
 export const TOKEN_MAX = 256;
 /** How long the confirmation stays on screen before going to /login. */
 export const RESET_REDIRECT_MS = 1500;
+
+/** Invitation activation (PRD AUTH-004). */
+export const INVITE_INVALID = 'This invitation link is invalid, has expired or has already been used. Ask your HR team to send a new invitation.';
+export const PASSWORD_MISMATCH = 'Passwords do not match.';
+export const NAME_TOO_LONG = 'Name must be 200 characters or fewer.';
+export const ACTIVATE_FAILED = 'Something went wrong while activating your account. Please try again.';
+export const ACCOUNT_ACTIVATED = 'Account activated. Taking you to your dashboard...';
+export const NAME_MAX = 200;
+export const ACTIVATION_REDIRECT_MS = 1500;

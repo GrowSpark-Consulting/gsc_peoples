@@ -50,7 +50,8 @@ test.describe('departments, designations, hiring, invitation and onboarding (ORG
     const joinerCtx = await browser.newContext();
     const joiner = await joinerCtx.newPage();
     await joiner.goto(link);
-    await joiner.getByLabel('Password').fill(NEW_PASSWORD);
+    await joiner.getByLabel('Password', { exact: true }).fill(NEW_PASSWORD);
+    await joiner.getByLabel('Confirm password').fill(NEW_PASSWORD);
     await joiner.getByRole('button', { name: 'Activate account' }).click();
     await expect(joiner).toHaveURL(/\/dashboard$/, { timeout: 45_000 });
 
@@ -63,9 +64,10 @@ test.describe('departments, designations, hiring, invitation and onboarding (ORG
     const replayCtx = await browser.newContext();
     const replay = await replayCtx.newPage();
     await replay.goto(link);
-    await replay.getByLabel('Password').fill('Another-Pass-2026!');
+    await replay.getByLabel('Password', { exact: true }).fill('Another-Pass-2026!');
+    await replay.getByLabel('Confirm password').fill('Another-Pass-2026!');
     await replay.getByRole('button', { name: 'Activate account' }).click();
-    await expect(replay.locator('form [role="alert"]')).toContainText(/invalid|expired|already used/i);
+    await expect(replay.getByRole('alert')).toContainText(/invalid|expired|already been used/i);
 
     await hr.goto('/onboarding');
     const row = hr.locator('tr', { hasText: 'Nina Joiner' });
