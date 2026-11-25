@@ -54,7 +54,13 @@ Status checked 2026-11-25.
 
 After SMTP is configured on Render: use "Forgot password" for the Super Admin account. The email must arrive, the link must open `WEB_APP_URL/reset-password`, work once, and stop working after 60 minutes (see `render-deployment-guide.md` section 5).
 
-## Known small gaps in the web pages (not fixed)
+## Web page behaviour (updated 2026-11-25)
 
-- `forgot-password/page.tsx`: if the network request itself fails (API down), the error is not caught and nothing is shown to the user. There is also no "sending..." state, so the button can be clicked repeatedly.
-- `reset-password/page.tsx`: same missing loading state. Opening the page without `?token=` only fails on submit (generic "Invalid reset fields"). On success it redirects to `/login` with no confirmation message.
+- Both pages: a sending state with the button disabled, duplicate submits ignored, network and API errors shown with a "Try again" retry. Messages live in `apps/web/src/lib/auth-messages.ts` and never include the token.
+- `forgot-password`: always shows the generic success wording.
+- `reset-password`:
+  - A missing or malformed `?token=` shows the invalid-link message immediately.
+  - Password length (10–128) is checked before submitting.
+  - An API 401 shows the invalid/expired-link message with a "Send reset link" button.
+  - Success shows "Password updated" for 1.5 s, then goes to `/login`.
+- Tests: `forgot-password/page.test.tsx`, `reset-password/page.test.tsx`.
