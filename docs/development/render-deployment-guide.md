@@ -90,13 +90,18 @@ row, re-checks eligibility inside the transaction, logs ids and counts only, and
 ## 7. Smoke checks after the first deploy
 
 1. `/api/v1/health` is 200 and `dependencies.database` is `up`; `/api/v1/health/ready` is 200.
-2. From a browser on the web domain: sign in; the cookies `gsc_session` (HttpOnly, Secure, Lax, parent domain) and
-   `gsc_csrf` exist.
-3. `curl -i -H "Origin: https://evil.example" https://api.<domain>/api/v1/health` shows no
-   `Access-Control-Allow-Origin`.
-4. Upload, preview and delete one test document; confirm the signed link dies after 60 seconds.
-5. Forgot password and one invitation arrive by email.
-6. Logs show no cookie, token, password or search text.
+2. **Same-origin (Topology A):** from a browser on the Vercel domain:
+   - `https://gsc-peoples.vercel.app/api/v1/health` returns `{"status":"ok",...}` (goes through the
+     Next.js rewrite to Render).
+   - Sign in; both cookies (`gsc_session` HttpOnly, `gsc_csrf` JS-readable) are on the Vercel host,
+     **not** on `onrender.com`.
+3. **Cross-origin (Topology B, custom domain):** sign in; `gsc_session` and `gsc_csrf` exist on the
+   shared parent domain with `Domain=.<domain>`.
+4. `curl -i -H "Origin: https://evil.example" https://gsc-peoples-api.onrender.com/api/v1/health`
+   shows no `Access-Control-Allow-Origin`.
+5. Upload, preview and delete one test document; confirm the signed link dies after 60 seconds.
+6. Forgot password and one invitation arrive by email.
+7. Logs show no cookie, token, password or search text.
 
 ## 8. Rollback
 

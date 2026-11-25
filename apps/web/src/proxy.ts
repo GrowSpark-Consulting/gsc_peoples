@@ -46,8 +46,15 @@ export async function proxy(req: NextRequest) {
     return NextResponse.next();
   }
 
+  // Server-side session validation requires an absolute URL to reach the Render API directly.
+  // In same-origin mode (NEXT_PUBLIC_API_URL=/api/v1) we cannot use that relative value here because
+  // Next.js middleware runs in the Edge Runtime: there is no localhost to resolve a relative URL against.
+  // RENDER_API_URL is the authoritative server-side-only target; NEXT_PUBLIC_API_URL is used only as a
+  // fallback for local development (where it is already an absolute http://localhost URL).
   const apiUrl =
-    process.env.NEXT_PUBLIC_API_URL ?? (production ? undefined : 'http://localhost:4000/api/v1');
+    process.env.RENDER_API_URL?.replace(/\/+$/, '') ??
+    (process.env.NEXT_PUBLIC_API_URL?.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : undefined) ??
+    (production ? undefined : 'http://localhost:4000/api/v1');
   if (!apiUrl) return unavailable();
 
   const session = req.cookies.get(SESSION_COOKIE)?.value;
@@ -74,6 +81,13 @@ export async function proxy(req: NextRequest) {
 
 export const config = {
   matcher: [
-    '/((?!_next/|favicon\\.ico$|(?:login|forgot-password|reset-password|accept-invitation)(?:/|$)|api/health$).*)',
+    // Exclude:
+    //   _next/*         — static assets and RSC payloads
+    //   favicon.ico     — browser icon
+    //   login, forgot-password, reset-password, accept-invitation — public auth pages
+    //   api/*           — Next.js rewrites for /api/v1/* and the passthrough health probe (/api/health).
+    //                     API paths must NOT be intercepted here: doing so would loop the rewrite back
+    //                     into the middleware and redirect JSON API responses to /login.
+    '/((?!_next/|favicon\\.ico$|(?:login|forgot-password|reset-password|accept-invitation)(?:/|$)|api/).*)',
   ],
 };

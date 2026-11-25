@@ -57,14 +57,32 @@ The same variables as the API (it loads the same configuration), plus:
 
 ## 2. Vercel: web app
 
+Two deployment topologies are supported — see
+[docs/architecture/same-origin-deployment.md](../architecture/same-origin-deployment.md).
+
+### Topology A — same-origin (recommended, no custom domain)
+
 | Variable | Production value | Required | Secret | Notes |
 |---|---|---|---|---|
-| `NEXT_PUBLIC_API_URL` | `https://api.<domain>/api/v1` | **yes** | no (public by design) | inlined at **build** time; the build fails without it; changing it needs a redeploy |
-| `ENABLE_EXPERIMENTAL_COREPACK` | `1` | recommended | no | makes Vercel use the pinned `pnpm@10.34.9` |
-| `NEXT_PUBLIC_EMPLOYEES_ADAPTER` | **unset** | no | no | demo data; ignored in production builds |
-| `NEXT_DIST_DIR` | unset | no | no | test tooling only |
+| `NEXT_PUBLIC_API_URL` | `/api/v1` | **yes** | no | Relative path; browser requests go through the Next.js rewrite to Render. Build fails without it. Baked at build time — redeploy to change. |
+| `RENDER_API_URL` | `https://gsc-peoples-api.onrender.com` | **yes** | no | Server-side only (NOT `NEXT_PUBLIC_*`). Rewrite destination and server-side `/me` check in `proxy.ts`. |
+| `ENABLE_EXPERIMENTAL_COREPACK` | `1` | recommended | no | Pinned pnpm version. |
 
-Never add a database URL, storage key, SMTP credential or any other secret to Vercel.
+Render changes for Topology A: `COOKIE_DOMAIN` = **empty/unset**; `CORS_ORIGINS` = Vercel app URL;
+`WEB_APP_URL` = Vercel app URL.
+
+### Topology B — cross-origin (custom domain required)
+
+| Variable | Production value | Required | Secret | Notes |
+|---|---|---|---|---|
+| `NEXT_PUBLIC_API_URL` | `https://api.<domain>/api/v1` | **yes** | no (public by design) | Absolute URL. Inlined at **build** time; build fails without it. Redeploy to change. |
+| `ENABLE_EXPERIMENTAL_COREPACK` | `1` | recommended | no | Pinned pnpm version. |
+
+Render changes for Topology B: `COOKIE_DOMAIN=.<domain>`; `CORS_ORIGINS=https://app.<domain>`;
+`WEB_APP_URL=https://app.<domain>`.
+
+**All topologies:** never add a database URL, storage key, SMTP credential, or any other secret to
+Vercel. Do not set `NEXT_PUBLIC_EMPLOYEES_ADAPTER`, `NEXT_DIST_DIR`, or any `NEXT_PUBLIC_*` secret.
 
 ## 3. Local development (repository-root `.env`)
 

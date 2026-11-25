@@ -69,8 +69,15 @@ services:
       - key: SUPABASE_STORAGE_SERVICE_KEY # server-side only                       [SECRET]
         sync: false
       - key: CORS_ORIGINS # exact web origin, e.g. https://app.example.com (no wildcard, no trailing slash)
+        # Same-origin deployment: Vercel rewrites /api/v1/* server-side. The browser never sends a
+        # cross-origin request to Render, so CORS is only needed for the server-to-server rewrite
+        # (which carries no Origin header). Set this to the Vercel app URL anyway to allow any
+        # direct API access from operator tooling. e.g. https://gsc-peoples.vercel.app
         sync: false
-      - key: COOKIE_DOMAIN # parent domain shared by app. and api., e.g. .example.com
+      - key: COOKIE_DOMAIN # LEAVE EMPTY for same-origin deployment on *.vercel.app + *.onrender.com.
+        # Setting this to a Vercel/Render domain value will BREAK cookies (browsers block Domain on
+        # public suffixes like .vercel.app). Only set this for a custom shared parent domain such as
+        # .example.com (cross-origin deployment, requires a purchased domain).
         sync: false
     # Must NOT be set on this service: DATABASE_URL, DIRECT_URL, SUPABASE_DIRECT_URL (migration credential),
     # TEST_*, DEV_AUTH_*, REDIS_URL, any NEXT_PUBLIC_* value.
