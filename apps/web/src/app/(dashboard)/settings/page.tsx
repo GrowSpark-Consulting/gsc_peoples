@@ -1,6 +1,12 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
+import { AccessDeniedState } from '@/components/shared/data-states';
+import { hasPermission, PERMISSIONS, useSession } from '@/hooks/use-session';
+import { useAsyncData } from '@/modules/employees/hooks/use-async-data';
+import { listEmployeesForInvite } from '@/modules/settings/api';
+import { formatTimestamp } from '@/modules/employees/format';
+import { AuditLogSection } from '@/modules/settings/audit-log-section';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
 
@@ -13,6 +19,17 @@ export default function SettingsPage() {
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [users, setUsers] = useState<Record<string, unknown>[]>([]);
+  const [reloadUsers, setReloadUsers] = useState(0);
+  const session = useSession();
+  // The API enforces every rule; these only hide controls the caller's role cannot use (PRD section 5).
+  const can = (p: Parameters<typeof hasPermission>[1]) => session.status === 'ready' && hasPermission(session.session, p);
+  const canEditCompany = can(PERMISSIONS.SETTINGS_WRITE);
+  const canAssignRoles = can(PERMISSIONS.USER_ROLE_MANAGE);
+  const canReadAudit = can(PERMISSIONS.AUDIT_READ);
+  const canReadSettings = can(PERMISSIONS.SETTINGS_READ);
+  // Employees who do not have a login yet can be invited; choosing one links the account to the record.
+  const candidates = useAsyncData(`settings:invitees:${reloadUsers}`, listEmployeesForInvite, can(PERMISSIONS.USER_ACCOUNT_READ));
+  const invitees = (candidates.data ?? []).filter((e) => e.invitationStatus === 'NOT_INVITED' && e.workEmail && e.status !== 'INACTIVE' && e.status !== 'TERMINATED');
 
   useEffect(() => {
     fetch(`${API}/settings/company`, { credentials: 'include' })
@@ -22,19 +39,23 @@ export default function SettingsPage() {
         setCompany(body.data);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not load company'));
+  }, []);
+
+  useEffect(() => {
     fetch(`${API}/settings/users`, { credentials: 'include' })
       .then(async (response) => ({ response, body: await response.json().catch(() => undefined) }))
       .then(({ response, body }) => {
         if (response.ok) setUsers(body.data);
       })
       .catch(() => undefined);
-  }, []);
+  }, [reloadUsers]);
 
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError('');
     setMessage('');
-    const form = new FormData(event.currentTarget);
+    const target = event.currentTarget; // React clears `currentTarget` after the first await
+    const form = new FormData(target);
     const response = await fetch(`${API}/settings/users/invite`, {
       method: 'POST',
       credentials: 'include',
@@ -51,8 +72,9 @@ export default function SettingsPage() {
       setError(body?.error?.message ?? 'Could not create invitation');
       return;
     }
-    setMessage('Invitation created for seven days.');
-    event.currentTarget.reset();
+    setMessage('Invitation emailed. The link works for seven days.');
+    target.reset();
+    setReloadUsers((n) => n + 1);
   }
 
   async function accountAction(membershipId: string, path: string, body: Record<string, string>) {
@@ -70,6 +92,7 @@ export default function SettingsPage() {
       return;
     }
     setMessage('Account updated.');
+    setReloadUsers((n) => n + 1);
   }
 
   async function resendInvitation(membershipId: string) {
@@ -85,7 +108,8 @@ export default function SettingsPage() {
       setError(responseBody?.error?.message ?? 'Could not resend invitation');
       return;
     }
-    setMessage('Invitation resent for seven days.');
+    setMessage('Invitation emailed again. Earlier links no longer work.');
+    setReloadUsers((n) => n + 1);
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
@@ -115,6 +139,8 @@ export default function SettingsPage() {
     }
   }
 
+  if (session.status === 'ready' && !canReadSettings) return <AccessDeniedState />;
+
   if (!company) {
     return <div role="status" className="text-sm text-[#737373]">{error || 'Loading company settings...'}</div>;
   }
@@ -122,7 +148,9 @@ export default function SettingsPage() {
   return (
     <div className="max-w-2xl">
       <h1 className="text-2xl font-semibold">Company settings</h1>
-      <form onSubmit={save} className="mt-6 grid gap-5 border border-[#E5E5E5] bg-white p-5">
+      <form onSubmit={save} className="mt-6 border border-[#E5E5E5] bg-white p-5">
+        {!canEditCompany ? <p className="mb-4 text-sm text-[#737373]">Only a Super Admin can change company settings.</p> : null}
+        <fieldset disabled={!canEditCompany} className="grid min-w-0 gap-5">
         <label className="grid gap-2 text-sm font-medium">
           Company name
           <input name="name" defaultValue={String(company.name)} required className="h-10 border border-[#E5E5E5] px-3 font-normal" />
@@ -166,7 +194,8 @@ export default function SettingsPage() {
         </div>
         {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
         {message && <p role="status" className="text-sm">{message}</p>}
-        <button className="h-10 w-full bg-[#090909] text-sm font-medium text-white sm:w-40">Save settings</button>
+        {canEditCompany ? <button className="h-10 w-full bg-[#090909] text-sm font-medium text-white sm:w-40">Save settings</button> : null}
+        </fieldset>
       </form>
 
       <section className="mt-8">
@@ -174,12 +203,18 @@ export default function SettingsPage() {
         <form onSubmit={invite} className="mt-4 grid gap-4 border border-[#E5E5E5] bg-white p-5 sm:grid-cols-2">
           <label className="grid gap-2 text-sm font-medium">Email<input name="email" type="email" required className="h-10 border border-[#E5E5E5] px-3 font-normal" /></label>
           <label className="grid gap-2 text-sm font-medium">Name<input name="name" className="h-10 border border-[#E5E5E5] px-3 font-normal" /></label>
-          <label className="grid gap-2 text-sm font-medium">Employee ID (optional)<input name="employeeId" className="h-10 border border-[#E5E5E5] px-3 font-normal" /></label>
-          <label className="grid gap-2 text-sm font-medium">Role<select name="roleKey" required defaultValue="EMPLOYEE" className="h-10 border border-[#E5E5E5] px-3 font-normal"><option value="SUPER_ADMIN">Super Admin</option><option value="HR_ADMIN">HR Admin</option><option value="MANAGER">Manager</option><option value="EMPLOYEE">Employee</option></select></label>
+          <label className="grid gap-2 text-sm font-medium">Employee record (optional)<select name="employeeId" defaultValue="" onChange={(event) => { const chosen = invitees.find((e) => e.id === event.target.value); const email = event.target.form?.elements.namedItem('email'); if (chosen?.workEmail && email instanceof HTMLInputElement) email.value = chosen.workEmail; }} className="h-10 border border-[#E5E5E5] px-3 font-normal"><option value="">Not linked to an employee</option>{invitees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} · {e.employeeNumber}</option>)}</select></label>
+          <label className="grid gap-2 text-sm font-medium">Role<select name="roleKey" required defaultValue="EMPLOYEE" className="h-10 border border-[#E5E5E5] px-3 font-normal">{canAssignRoles ? <><option value="SUPER_ADMIN">Super Admin</option><option value="HR_ADMIN">HR Admin</option></> : null}<option value="MANAGER">Manager</option><option value="EMPLOYEE">Employee</option></select></label>
           <button className="h-10 w-full bg-[#090909] text-sm font-medium text-white sm:w-40">Create invitation</button>
         </form>
-        {users.length === 0 ? <p className="mt-4 text-sm text-[#737373]">No user accounts.</p> : <div className="mt-4 overflow-x-auto border border-[#E5E5E5]"><table className="w-full min-w-[720px] text-left text-sm"><thead className="border-b border-[#E5E5E5] bg-[#F5F5F5]"><tr><th className="p-3">User</th><th className="p-3">Role</th><th className="p-3">Account</th><th className="p-3">Invitation</th><th className="p-3">Last login</th><th className="p-3">Actions</th></tr></thead><tbody>{users.map((user) => <tr key={String(user.id)} className="border-b border-[#E5E5E5]"><td className="p-3">{String(user.name ?? user.email ?? '')}<span className="block text-xs text-[#737373]">{String(user.email ?? '')}</span></td><td className="p-3">{String(user.roleName ?? user.roleKey ?? '')}</td><td className="p-3">{String(user.accountStatus ?? '')}</td><td className="p-3">{String(user.invitationStatus ?? '')}</td><td className="p-3">{user.lastLoginAt ? String(user.lastLoginAt) : 'Never'}</td><td className="p-3"><div className="flex flex-wrap gap-2"><button type="button" className="h-8 border border-[#E5E5E5] px-2" onClick={() => accountAction(String(user.id), 'status', { status: user.accountStatus === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' })}>{user.accountStatus === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button><button type="button" className="h-8 border border-[#E5E5E5] px-2" onClick={() => resendInvitation(String(user.id))}>Resend</button><select aria-label="Role" className="h-8 border border-[#E5E5E5] px-2" defaultValue={String(user.roleKey)} onChange={(event) => accountAction(String(user.id), 'role', { roleKey: event.target.value })}><option value="SUPER_ADMIN">Super Admin</option><option value="HR_ADMIN">HR Admin</option><option value="MANAGER">Manager</option><option value="EMPLOYEE">Employee</option></select></div></td></tr>)}</tbody></table></div>}
+        {users.length === 0 ? <p className="mt-4 text-sm text-[#737373]">No user accounts.</p> : <div className="mt-4 overflow-x-auto border border-[#E5E5E5]"><table className="w-full min-w-[720px] text-left text-sm"><thead className="border-b border-[#E5E5E5] bg-[#F5F5F5]"><tr><th className="p-3">User</th><th className="p-3">Role</th><th className="p-3">Account</th><th className="p-3">Invitation</th><th className="p-3">Last login</th><th className="p-3">Actions</th></tr></thead><tbody>{users.map((user) => <tr key={String(user.id)} className="border-b border-[#E5E5E5]"><td className="p-3">{String(user.name ?? user.email ?? '')}<span className="block text-xs text-[#737373]">{String(user.email ?? '')}</span></td><td className="p-3">{String(user.roleName ?? user.roleKey ?? '')}</td><td className="p-3">{String(user.accountStatus ?? '')}</td><td className="p-3">{String(user.invitationStatus ?? '')}</td><td className="p-3">{user.lastLoginAt ? formatTimestamp(String(user.lastLoginAt)) : 'Never'}</td><td className="p-3"><div className="flex flex-wrap gap-2">{user.status !== 'INVITED' ? <button type="button" className="h-8 border border-[#E5E5E5] px-2" onClick={() => accountAction(String(user.id), 'status', { status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' })}>{user.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button> : null}{user.status === 'INVITED' ? <button type="button" className="h-8 border border-[#E5E5E5] px-2" onClick={() => resendInvitation(String(user.id))}>Resend</button> : null}{canAssignRoles ? <select aria-label="Role" className="h-8 border border-[#E5E5E5] px-2" defaultValue={String(user.roleKey)} onChange={(event) => accountAction(String(user.id), 'role', { roleKey: event.target.value })}><option value="SUPER_ADMIN">Super Admin</option><option value="HR_ADMIN">HR Admin</option><option value="MANAGER">Manager</option><option value="EMPLOYEE">Employee</option></select> : null}</div></td></tr>)}</tbody></table></div>}
       </section>
+
+      {canReadAudit ? (
+        <div className="mt-8">
+          <AuditLogSection users={users.map((u) => ({ id: String(u.userId), label: String(u.name ?? u.email ?? u.userId) }))} />
+        </div>
+      ) : null}
     </div>
   );
 }

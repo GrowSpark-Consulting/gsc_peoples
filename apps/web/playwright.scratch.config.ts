@@ -18,6 +18,8 @@ const API_PORT = Number(process.env.E2E_API_PORT ?? 4400);
 const WEB_PORT = Number(process.env.E2E_WEB_PORT ?? 3400);
 const apiDir = path.resolve(__dirname, '../api');
 const apiUrl = `http://localhost:${API_PORT}/api/v1`;
+const SMTP_PORT = Number(process.env.E2E_SMTP_PORT ?? 4425);
+const MAIL_PORT = Number(process.env.E2E_MAIL_PORT ?? 4426);
 
 const urls = JSON.parse(
   execFileSync(process.execPath, [path.join(apiDir, 'node_modules/tsx/dist/cli.mjs'), 'scripts/e2e-scratch-db.ts', 'urls'], { cwd: apiDir, encoding: 'utf8' }).trim(),
@@ -47,6 +49,14 @@ export default defineConfig({
   ],
   webServer: [
     {
+      // Catches invitation and password-reset emails locally (nothing is sent anywhere).
+      command: 'node e2e-scratch/mail-sink.mjs',
+      url: `http://127.0.0.1:${MAIL_PORT}/`,
+      reuseExistingServer: false,
+      timeout: 30_000,
+      env: { E2E_SMTP_PORT: String(SMTP_PORT), E2E_MAIL_PORT: String(MAIL_PORT) },
+    },
+    {
       command: 'node node_modules/tsx/dist/cli.mjs src/server.ts',
       cwd: apiDir,
       url: `${apiUrl}/health`,
@@ -64,6 +74,13 @@ export default defineConfig({
         AUTH_RATE_LIMIT_PER_15_MIN: '5000',
         RATE_LIMIT_PER_MINUTE: '50000',
         DOCUMENT_STORAGE_DRIVER: 'local',
+        DB_TARGET: 'local',
+        MAIL_DRIVER: 'smtp',
+        SMTP_HOST: '127.0.0.1',
+        SMTP_PORT: String(SMTP_PORT),
+        SMTP_SECURE: 'false',
+        MAIL_FROM: 'GSC Peoples <no-reply@e2e.local>',
+        WEB_APP_URL: `http://localhost:${WEB_PORT}`,
         DOCUMENTS_STORAGE_DIR: path.resolve(__dirname, 'test-results/e2e-scratch-documents'),
       },
     },

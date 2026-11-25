@@ -1,6 +1,7 @@
 import {
-  employeeListResponseSchema,
   onboardingListResponseSchema,
+  onboardingProgressListResponseSchema,
+  type onboardingStatusSchema,
   onboardingTemplateListResponseSchema,
   type createOnboardingTaskSchema,
   type createOnboardingTemplateTaskSchema,
@@ -12,11 +13,18 @@ import { apiRequest } from '@/lib/api-client';
 
 const enc = encodeURIComponent;
 
-/** Employees still onboarding. There is no cross-employee onboarding list endpoint yet (see the matrix, G11). */
-export const listOnboardingEmployees = () =>
-  apiRequest('/employees', { query: { status: ['ONBOARDING'], limit: 100 }, schema: employeeListResponseSchema }).then(
-    (r) => r.data,
-  );
+export const PAGE_SIZE = 25;
+export interface ProgressQuery {
+  status?: z.infer<typeof onboardingStatusSchema>;
+  search?: string;
+  page: number;
+}
+/** ONB-004 / ONB-005: onboarding status and invite state per employee, filtered and paginated by the API. */
+export const listOnboardingProgress = (q: ProgressQuery) =>
+  apiRequest('/onboarding/progress', {
+    query: { status: q.status, search: q.search, page: q.page, pageSize: PAGE_SIZE },
+    schema: onboardingProgressListResponseSchema,
+  });
 
 export const getChecklist = (employeeId: string) =>
   apiRequest(`/onboarding/employees/${enc(employeeId)}/tasks`, { schema: onboardingListResponseSchema });

@@ -15,6 +15,7 @@ import { scopeLabel } from '../permissions';
 import { useEmployeesContext } from '../state/employees-context';
 import { DirectoryFiltersBar } from './directory-filters';
 import { EmployeeProfileDrawer } from './employee-profile-drawer';
+import { CompanyDirectory } from './record-sections';
 import { EmployeeCards, EmployeeTable } from './employee-table';
 
 export interface EmployeeDirectoryProps {
@@ -44,7 +45,7 @@ export function EmployeeDirectory({
   viewId,
   onViewChange,
 }: EmployeeDirectoryProps) {
-  const { caps } = useEmployeesContext();
+  const { caps, service } = useEmployeesContext();
   const [localView, setLocalView] = useState<string | null>(null);
   const view = viewId !== undefined ? viewId : localView;
   const setView = onViewChange ?? setLocalView;
@@ -76,6 +77,9 @@ export function EmployeeDirectory({
         onClear={() => onFiltersChange(EMPTY_FILTERS)}
         onOpen={setView}
       />
+
+      {/* EMP-003: people who see only their team or themselves can still look colleagues up. */}
+      {service.kind === 'http' && !caps.readAll ? <CompanyDirectory /> : null}
 
       <EmployeeProfileDrawer
         id={view}

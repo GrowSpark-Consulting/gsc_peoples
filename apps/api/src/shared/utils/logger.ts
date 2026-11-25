@@ -9,6 +9,7 @@ export const LOG_REDACT_PATHS = [
   'req.headers["x-csrf-token"]',
   'res.headers["set-cookie"]',
   'res.headers["x-development-reset-token"]',
+  'res.headers["x-development-invitation-token"]',
 ];
 
 export const logger = pino({

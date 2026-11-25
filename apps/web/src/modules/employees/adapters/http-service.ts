@@ -45,6 +45,7 @@ export function buildListQueryString(query: EmployeeListQueryInput): string {
   set('status', csv(query.status));
   set('employmentType', csv(query.employmentType));
   set('departmentId', query.departmentId);
+  set('designationId', query.designationId);
   set('managerId', query.managerId);
   const s = p.toString();
   return s ? `?${s}` : '';

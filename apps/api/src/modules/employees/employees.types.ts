@@ -1,6 +1,7 @@
 import type {
   ChangeEmployeeStatus,
   CreateEmployee,
+  DirectoryQuery,
   EmployeeListQuery,
   EmployeeSelfUpdate,
   EmploymentStatus,
@@ -46,6 +47,18 @@ export type ReadScope =
 
 export interface Actor {
   userId: string;
+  /** Some employee changes are Super Admin only (employee ID, joining date, offboarding a Super Admin). */
+  isSuperAdmin: boolean;
+}
+
+export interface DirectoryRow {
+  id: string;
+  firstName: string;
+  lastName: string;
+  workEmail: string | null;
+  jobTitle: string | null;
+  department: { name: string } | null;
+  designation: { name: string } | null;
 }
 
 export interface EmployeePage {
@@ -77,5 +90,5 @@ export interface EmployeeRepository {
     change: ChangeEmployeeStatus,
   ): Promise<EmployeeRow>;
   timeline(ctx: TenantContext, scope: ReadScope, id: string): Promise<TimelineEntry[]>;
-  sendInvitation(ctx: TenantContext, actor: Actor, id: string): Promise<{ status: string; expiresAt?: string }>;
+  directory(ctx: TenantContext, query: DirectoryQuery): Promise<{ rows: DirectoryRow[]; total: number }>;
 }

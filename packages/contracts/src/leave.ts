@@ -106,4 +106,32 @@ function csvLeaveStatus() {
   return z.preprocess((v) => typeof v === 'string' ? v.split(',').map(s => s.trim()).filter(Boolean) : v, z.array(leaveRequestStatusSchema));
 }
 export const leaveRequestListResponseSchema = z.object({ data: z.array(leaveRequestSchema), page: z.object({ page: z.number().int(), pageSize: z.number().int(), total: z.number().int() }).optional() });
-export const leaveCalendarResponseSchema = z.object({ data: z.array(z.object({ date: z.string(), items: z.array(z.record(z.string(), z.unknown())) })) });
+
+// LEAVE-008: month calendar -----------------------------------------------------------------------------------
+
+export const leaveCalendarScopeSchema = z.enum(['own', 'team', 'all']);
+export type LeaveCalendarScope = z.infer<typeof leaveCalendarScopeSchema>;
+export const leaveCalendarQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+  /** Defaults to the widest calendar the caller may see. */
+  scope: leaveCalendarScopeSchema.optional(),
+}).strict();
+export const leaveCalendarDaySchema = z.object({
+  date: z.string(),
+  isWorkingDay: z.boolean(),
+  holidayName: z.string().nullable(),
+  items: z.array(z.object({
+    requestId: z.uuid(),
+    employeeId: z.uuid(),
+    employeeName: z.string(),
+    leaveTypeName: z.string(),
+    status: z.enum(['PENDING', 'APPROVED']),
+    dayType: leaveDayTypeSchema,
+    halfDaySession: leaveHalfSchema.nullable(),
+  })),
+});
+export const leaveCalendarResponseSchema = z.object({
+  data: z.array(leaveCalendarDaySchema),
+  meta: z.object({ year: z.number().int(), month: z.number().int(), scope: leaveCalendarScopeSchema }),
+});

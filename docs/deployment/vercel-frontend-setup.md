@@ -1,3 +1,5 @@
+> **Superseded on 2026-11-25** by [vercel-deployment-guide.md](../development/vercel-deployment-guide.md). Kept for history; do not follow the steps below.
+
 # Vercel frontend setup: `gsc-peoples-web`
 
 **Not created.** Prepared for manual dashboard setup after approval [APPROVAL].

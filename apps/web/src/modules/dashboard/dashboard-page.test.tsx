@@ -35,9 +35,11 @@ const hrData = {
   activeEmployees: 10,
   presentToday: 7,
   absentToday: 2,
+  notYetInToday: 0,
   onLeaveToday: 1,
   pendingApprovals: 3,
   joinersLast30Days: 4,
+  joiners: [{ id: 'e-new', name: 'Nina Newhire', employeeNumber: 'EMP-0009', joiningDate: '2026-11-20' }],
   recentActivities: [],
 };
 
@@ -50,6 +52,9 @@ describe('HR / Super Admin dashboard (DASH-001)', () => {
     expect(card('Total employees').textContent).toContain('12');
     expect(card('Pending approvals').textContent).toContain('3');
     expect(card('Joined in last 30 days').textContent).toContain('4');
+    expect(card('Absent').textContent).toContain('2');
+    expect(card('Not yet in').textContent).toContain('0');
+    expect(screen.getByRole('link', { name: /Nina Newhire/ }).getAttribute('href')).toBe('/employees/e-new');
     expect(screen.getByText('No activity yet')).toBeTruthy();
     expect(screen.queryByText('Team members')).toBeNull();
     expect(screen.queryByRole('button', { name: /check in/i })).toBeNull();
@@ -96,7 +101,7 @@ describe('Manager dashboard (DASH-002)', () => {
     render(<DashboardPage />);
     expect(await screen.findByText('Team members')).toBeTruthy();
     expect((screen.getByText('Present today').parentElement as HTMLElement).textContent).toContain('3');
-    expect(screen.getByText('No approved leave')).toBeTruthy();
+    expect(screen.getByText('No upcoming leave')).toBeTruthy();
     expect(screen.queryByText('Total employees')).toBeNull();
   });
 });

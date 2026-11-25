@@ -1,3 +1,5 @@
+> **Superseded on 2026-11-25** by [production-migration-and-bootstrap.md](../development/production-migration-and-bootstrap.md). Kept for history; do not follow the steps below.
+
 # Production bootstrap: plan (NOT IMPLEMENTED, NOT RUN)
 
 Finding [CONFIRMED]: `apps/api/src/database/seeds/index.ts` and `scripts/provision-local.ts` create development personas and are local-only. **No production bootstrap exists**, so after migration nobody can sign in. This is blocker B1. Detailed design already agreed in `docs/development/production-bootstrap-plan.md`; this document adds the deployment-specific decisions.

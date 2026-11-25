@@ -172,9 +172,11 @@ describe('multipart upload (DOC-001)', () => {
     expect(await docCount()).toBe(0);
   });
 
-  it('manager-visible flag is taken from the form; default is private', async () => {
-    const res = await upload('team', 'employee', { fields: { category: 'CONTRACT', visibleToManager: 'true' } });
-    expect((await docRow(res.body.data.id)).visibleToManager).toBe(true);
+  it('only HR can set the manager-visible flag on upload (DOC-004); default is private', async () => {
+    const own = await upload('team', 'employee', { fields: { category: 'CONTRACT', visibleToManager: 'true' } });
+    expect((await docRow(own.body.data.id)).visibleToManager).toBe(false);
+    const byHr = await upload('hr', 'employee', { fields: { category: 'CONTRACT', employeeId: emp('team'), visibleToManager: 'true' } });
+    expect((await docRow(byHr.body.data.id)).visibleToManager).toBe(true);
     expect((await upload('team', 'employee', { fields: { category: 'CONTRACT', visibleToManager: 'maybe' } })).status).toBe(400);
   });
 
@@ -237,7 +239,10 @@ describe('multipart upload (DOC-001)', () => {
 
 describe('signed download (DOC-003) and visibility (DOC-002/004)', () => {
   const makeDoc = async (who: string, opts: { visible?: boolean; owner?: string } = {}) => {
-    const res = await upload(who, 'employee', { fields: { category: 'ID_PROOF', ...(opts.owner ? { employeeId: opts.owner } : {}), ...(opts.visible ? { visibleToManager: 'true' } : {}) } });
+    // A flagged document is uploaded by HR for that person: the owner cannot set the flag (DOC-004).
+    const res = opts.visible
+      ? await upload('hr', 'employee', { fields: { category: 'ID_PROOF', employeeId: emp(who), visibleToManager: 'true' } })
+      : await upload(who, 'employee', { fields: { category: 'ID_PROOF', ...(opts.owner ? { employeeId: opts.owner } : {}) } });
     expect(res.status).toBe(201);
     return res.body.data.id as string;
   };
@@ -304,6 +309,8 @@ describe('signed download (DOC-003) and visibility (DOC-002/004)', () => {
     expect(JSON.stringify(mine.body)).not.toContain(A);
     const forMgr = await api('mgr', 'get', `/documents?employeeId=${emp('team')}`);
     expect(forMgr.body.data).toHaveLength(1); // only the visible one
+    const forMgrAll = await api('mgr', 'get', '/documents');
+    expect(forMgrAll.body.data).toHaveLength(2); // flagged team doc + company doc
     expect((await api('hr', 'get', '/documents')).body.data).toHaveLength(4);
   });
 

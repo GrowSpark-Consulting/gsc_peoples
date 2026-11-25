@@ -5,5 +5,6 @@ import nextTs from 'eslint-config-next/typescript';
 export default defineConfig([
   ...nextVitals,
   ...nextTs,
-  globalIgnores(['.next/**', '.next-live/**', '.next-live-testdb/**', '.next-prod/**', '.next-prod-live/**', '.next-prod-noapi/**', 'node_modules/**', 'next-env.d.ts', 'playwright-report/**']),
+  // `.next-*` are the separate build folders of the browser suites (next.config.ts, NEXT_DIST_DIR).
+  globalIgnores(['.next/**', '.next-*/**', 'node_modules/**', 'next-env.d.ts', 'playwright-report/**', 'test-results/**']),
 ]);

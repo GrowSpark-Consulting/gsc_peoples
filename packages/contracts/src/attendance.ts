@@ -36,9 +36,55 @@ export const attendanceSummarySchema = z.object({
   onLeave: z.number().int(),
   holidays: z.number().int(),
   hoursWorked: z.number(),
+  missingCheckout: z.number().int().optional(),
 });
 export const attendanceSummaryResponseSchema = z.object({ data: attendanceSummarySchema, records: z.array(attendanceRecordSchema).optional() });
-export const attendanceListResponseSchema = z.object({ data: z.array(attendanceRecordSchema), page: z.object({ page: z.number().int(), pageSize: z.number().int(), total: z.number().int() }).optional(), summary: attendanceSummarySchema.optional() });
+/** One calendar day of a month (ATT-003). The monthly totals are counted from exactly these rows. */
+export const attendanceDaySchema = z.object({
+  date: z.string(),
+  status: z.enum(['PRESENT', 'ABSENT', 'ON_LEAVE', 'HOLIDAY', 'WEEKEND', 'NOT_YET_IN', 'MISSING_CHECKOUT']),
+  checkInAt: z.string().nullable(),
+  checkOutAt: z.string().nullable(),
+  workedMinutes: z.number().int().nullable(),
+  halfDayLeave: z.boolean(),
+  holidayName: z.string().nullable(),
+  corrected: z.boolean(),
+});
+export const attendanceListResponseSchema = z.object({
+  data: z.array(attendanceRecordSchema),
+  page: z.object({ page: z.number().int(), pageSize: z.number().int(), total: z.number().int() }).optional(),
+  /** Present when a month and year are requested. */
+  summary: attendanceSummarySchema.optional(),
+  days: z.array(attendanceDaySchema).optional(),
+});
+
+// ATT-008 -----------------------------------------------------------------------------------------------------
+
+export const attendanceReportQuerySchema = z.object({
+  year: z.coerce.number().int().min(2000).max(2100),
+  month: z.coerce.number().int().min(1).max(12),
+  departmentId: z.uuid().optional(),
+  format: z.enum(['json', 'csv']).default('json'),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+}).strict();
+export const attendanceReportRowSchema = z.object({
+  employeeId: z.uuid(),
+  employeeNumber: z.string(),
+  name: z.string(),
+  departmentName: z.string().nullable(),
+  present: z.number().int(),
+  absent: z.number().int(),
+  onLeave: z.number().int(),
+  holidays: z.number().int(),
+  missingCheckout: z.number().int(),
+  hoursWorked: z.number(),
+});
+export const attendanceReportResponseSchema = z.object({
+  data: z.array(attendanceReportRowSchema),
+  page: z.object({ page: z.number().int(), pageSize: z.number().int(), total: z.number().int() }),
+  meta: z.object({ year: z.number().int(), month: z.number().int() }),
+});
 
 export const attendanceCorrectionSchema = z.object({
   id: z.uuid(),

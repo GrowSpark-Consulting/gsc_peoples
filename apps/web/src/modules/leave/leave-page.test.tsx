@@ -110,8 +110,10 @@ describe('Employee: balances, history, apply (LEAVE-002, 003, 004)', () => {
               request({ id: uuid(), employeeId: SELF, reason: 'future pending' }),
               request({ id: uuid(), employeeId: SELF, status: 'REJECTED', reason: 'future rejected' }),
               request({ id: uuid(), employeeId: SELF, startDate: '2020-01-01T00:00:00.000Z', endDate: '2020-01-02T00:00:00.000Z', reason: 'past pending' }),
+              request({ id: uuid(), employeeId: SELF, status: 'APPROVED', startDate: '2020-01-03T00:00:00.000Z', endDate: '2020-01-04T00:00:00.000Z', reason: 'started approved' }),
+              request({ id: uuid(), employeeId: SELF, status: 'APPROVED', startDate: '2099-01-03T00:00:00.000Z', endDate: '2099-01-04T00:00:00.000Z', reason: 'future approved' }),
             ],
-            page: page(3),
+            page: page(5),
           },
         },
       } as never),
@@ -120,7 +122,10 @@ describe('Employee: balances, history, apply (LEAVE-002, 003, 004)', () => {
     const row = async (t: string) => (await screen.findByText(t)).closest('tr') as HTMLElement;
     expect(within(await row('future pending')).queryByRole('button', { name: 'Cancel' })).toBeTruthy();
     expect(within(await row('future rejected')).queryByRole('button', { name: 'Cancel' })).toBeNull();
-    expect(within(await row('past pending')).queryByRole('button', { name: 'Cancel' })).toBeNull();
+    // PRD LEAVE-007: pending may always be cancelled by its owner; approved only before it starts.
+    expect(within(await row('past pending')).queryByRole('button', { name: 'Cancel' })).toBeTruthy();
+    expect(within(await row('started approved')).queryByRole('button', { name: 'Cancel' })).toBeNull();
+    expect(within(await row('future approved')).queryByRole('button', { name: 'Cancel' })).toBeTruthy();
   });
 });
 
@@ -131,7 +136,7 @@ describe('Approvals (LEAVE-005, LEAVE-006): no self-approval', () => {
     'GET /leave/types': { body: { data: [leaveType] } },
     'GET /employees': employees,
     'GET /leave/requests': ({ query }: { query: URLSearchParams }) =>
-      query.get('status') === 'PENDING'
+      query.get('pendingForMe') === 'true'
         ? { body: { data: [request({ id: uuid(), employeeId: SELF, reason: 'my own leave' }), request({ id: uuid(), reason: 'their leave' })], page: page(2) } }
         : { body: { data: [], page: page(0) } },
     ...extra,
@@ -164,7 +169,7 @@ describe('Approvals (LEAVE-005, LEAVE-006): no self-approval', () => {
     const api = mockApi(
       hr({
         'GET /leave/requests': ({ query }: { query: URLSearchParams }) =>
-          query.get('status') === 'PENDING'
+          query.get('pendingForMe') === 'true'
             ? { body: { data: approved ? [] : [request({ id: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd', reason: 'their leave' })], page: page(1) } }
             : { body: { data: [], page: page(0) } },
         'PATCH /leave/requests/dddddddd-dddd-4ddd-8ddd-dddddddddddd/review': () => {

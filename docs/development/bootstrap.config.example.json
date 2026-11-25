@@ -1,0 +1,24 @@
+{
+  "company": {
+    "name": "REPLACE: Company name",
+    "timezone": "Asia/Kolkata",
+    "workingDays": [1, 2, 3, 4, 5],
+    "workStartTime": "09:00",
+    "workEndTime": "18:00"
+  },
+  "superAdmin": {
+    "firstName": "REPLACE",
+    "lastName": "REPLACE",
+    "workEmail": "replace@example.com",
+    "department": "REPLACE: Department",
+    "designation": "REPLACE: Designation"
+  },
+  "departments": ["REPLACE: Department"],
+  "designations": ["REPLACE: Designation"],
+  "leaveTypes": [
+    { "name": "Casual", "annualAllocation": null, "isPaid": true, "allowHalfDay": true },
+    { "name": "Sick", "annualAllocation": null, "isPaid": true, "allowHalfDay": true },
+    { "name": "Earned", "annualAllocation": null, "isPaid": true, "allowHalfDay": true }
+  ],
+  "onboardingTasks": [{ "title": "REPLACE: First onboarding task", "dueOffsetDays": 0, "assigneeType": "HR" }]
+}

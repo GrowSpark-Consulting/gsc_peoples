@@ -52,6 +52,7 @@ import {
   PAGE_SIZE,
   updateLeaveType,
 } from './api';
+import { LeaveCalendarSection } from './leave-calendar';
 
 type LeaveRequest = z.infer<typeof leaveRequestSchema>;
 type LeaveType = z.infer<typeof leaveTypeSchema>;
@@ -87,6 +88,7 @@ function LeaveBody({ session }: { session: Session }) {
       {session.employeeId ? <BalancesSection session={session} /> : null}
       {canApprove ? <ApprovalsSection session={session} /> : null}
       <HistorySection session={session} />
+      <LeaveCalendarSection session={session} />
       {canManageTypes ? <TypesSection /> : null}
     </div>
   );
@@ -226,13 +228,10 @@ function AdjustDialog({
 /* ---------------- Approvals (LEAVE-005, LEAVE-006) ---------------- */
 
 function ApprovalsSection({ session }: { session: Session }) {
-  const readAll = hasPermission(session, PERMISSIONS.LEAVE_READ_ALL);
   const [page, setPage] = useState(1);
   const names = useAsyncData('leave:appr-names', getEmployeeNames);
   const nameOf = useMemo(() => new Map((names.data ?? []).map((n) => [n.id, n.name])), [names.data]);
-  const q = useAsyncData(`leave:pending:${readAll}:${page}`, () =>
-    listRequests(readAll ? { status: ['PENDING'], page } : { pendingForMe: true, page }),
-  );
+  const q = useAsyncData(`leave:pending:${page}`, () => listRequests({ pendingForMe: true, page }));
   const [deciding, setDeciding] = useState<{ req: LeaveRequest; status: 'APPROVED' | 'REJECTED' } | null>(null);
   // Own requests are never decided by their owner (PRD LEAVE-005); the API enforces this as well.
   const rows = (q.data?.data ?? []).filter((r) => r.employeeId !== session.employeeId);
@@ -369,10 +368,12 @@ function HistorySection({ session }: { session: Session }) {
     const r = await cancel.run(id);
     if (r.ok) q.reload();
   }
-  const canCancel = (r: LeaveRequest) =>
-    (r.status === 'PENDING' || r.status === 'APPROVED') &&
-    r.startDate.slice(0, 10) >= today &&
-    ((r.employeeId === session.employeeId && canCancelOwn) || canCancelAny);
+  const canCancel = (r: LeaveRequest) => {
+    if (r.status !== 'PENDING' && r.status !== 'APPROVED') return false;
+    if (canCancelAny) return true;
+    const own = r.employeeId === session.employeeId && canCancelOwn;
+    return own && (r.status === 'PENDING' || r.startDate.slice(0, 10) > today);
+  };
 
   return (
     <Section

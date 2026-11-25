@@ -87,6 +87,10 @@ describe('development auth gating (production safety)', () => {
       DOCUMENT_STORAGE_DRIVER: 'supabase',
       SUPABASE_STORAGE_URL: 'https://abc.supabase.co',
       SUPABASE_STORAGE_SERVICE_KEY: 'service-key',
+      MAIL_DRIVER: 'smtp',
+      SMTP_HOST: 'smtp.example.com',
+      MAIL_FROM: 'GSC Peoples <no-reply@example.com>',
+      WEB_APP_URL: 'https://hr.example.com',
     };
     expect(parseEnv(ok).AUTH_MODE).toBe('session');
     const without = (key: keyof typeof ok) => Object.fromEntries(Object.entries(ok).filter(([k]) => k !== key));
@@ -98,5 +102,15 @@ describe('development auth gating (production safety)', () => {
     expect(() => parseEnv({ ...ok, DOCUMENT_STORAGE_DRIVER: 'local' })).toThrow(/DOCUMENT_STORAGE_DRIVER/);
     expect(() => parseEnv(without('SUPABASE_STORAGE_SERVICE_KEY'))).toThrow(/SUPABASE_STORAGE_SERVICE_KEY/);
     expect(parseEnv(ok).SUPABASE_STORAGE_BUCKET).toBe('hr-documents');
+    // email: production states its choice, and smtp needs a host, a sender and an https web origin for the links
+    expect(() => parseEnv(without('MAIL_DRIVER'))).toThrow(/MAIL_DRIVER/);
+    expect(parseEnv({ ...ok, MAIL_DRIVER: 'disabled' }).MAIL_DRIVER).toBe('disabled');
+    for (const key of ['SMTP_HOST', 'MAIL_FROM', 'WEB_APP_URL'] as const) expect(() => parseEnv(without(key))).toThrow(new RegExp(key));
+    expect(() => parseEnv({ ...ok, WEB_APP_URL: 'http://hr.example.com' })).toThrow(/WEB_APP_URL/);
+    // CORS: credentialed requests need exact https origins
+    for (const bad of ['*', 'http://hr.example.com', 'https://hr.example.com/', 'https://*.example.com', 'https://a.example.com,*']) {
+      expect(() => parseEnv({ ...ok, CORS_ORIGINS: bad }), bad).toThrow(/CORS_ORIGINS/);
+    }
+    expect(parseEnv({ ...ok, CORS_ORIGINS: 'https://a.example.com, https://b.example.com:8443' }).CORS_ORIGINS).toHaveLength(2);
   });
 });

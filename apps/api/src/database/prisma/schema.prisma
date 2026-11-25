@@ -225,7 +225,7 @@ model Designation {
   name      String
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   company   Company    @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employees Employee[]
@@ -256,7 +256,7 @@ model EmployeeNumberSequence {
   id        String   @id @default(uuid())
   companyId String   @unique
   nextValue Int      @default(1)
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
@@ -368,7 +368,7 @@ model OnboardingTemplateTask {
   assigneeType  OnboardingAssigneeType
   isActive      Boolean                @default(true)
   createdAt     DateTime               @default(now())
-  updatedAt     DateTime               @updatedAt
+  updatedAt     DateTime               @default(now()) @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
 
@@ -389,7 +389,7 @@ model OnboardingTask {
   completedAt        DateTime?
   completedByUserId  String?
   createdAt          DateTime               @default(now())
-  updatedAt          DateTime               @updatedAt
+  updatedAt          DateTime               @default(now()) @updatedAt
 
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -414,7 +414,7 @@ model AttendanceRecord {
   lastCorrectedAt      DateTime?
   lastCorrectedByUserId String?
   createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
+  updatedAt            DateTime  @default(now()) @updatedAt
 
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -441,7 +441,7 @@ model AttendanceCorrection {
   originalCheckInAt    DateTime?
   originalCheckOutAt   DateTime?
   createdAt            DateTime                   @default(now())
-  updatedAt            DateTime                   @updatedAt
+  updatedAt            DateTime                   @default(now()) @updatedAt
 
   company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -462,7 +462,7 @@ model LeaveType {
   allowHalfDay     Boolean  @default(true)
   isActive         Boolean  @default(true)
   createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  updatedAt        DateTime @default(now()) @updatedAt
 
   company       Company        @relation(fields: [companyId], references: [id], onDelete: Restrict)
   balances      LeaveBalance[]
@@ -484,7 +484,7 @@ model LeaveBalance {
   used           Float    @default(0)
   pendingReserved Float   @default(0)
   createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  updatedAt      DateTime @default(now()) @updatedAt
 
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employee  Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -515,7 +515,7 @@ model LeaveRequest {
   cancelledAt     DateTime?
   cancelledByUserId String?
   createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
+  updatedAt       DateTime           @default(now()) @updatedAt
 
   company   Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employee  Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -544,7 +544,7 @@ model EmployeeDocument {
   deletedAt        DateTime?
   purgeAfterAt     DateTime?
   createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
+  updatedAt        DateTime         @default(now()) @updatedAt
 
   company Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
   owner   Employee? @relation("EmployeeDocuments", fields: [companyId, ownerEmployeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
@@ -568,7 +568,7 @@ model Notification {
   readAt    DateTime?
   dedupeKey String?
   createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  updatedAt DateTime @default(now()) @updatedAt
 
   company Company @relation(fields: [companyId], references: [id], onDelete: Restrict)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)

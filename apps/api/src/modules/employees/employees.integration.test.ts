@@ -77,10 +77,11 @@ const ID = {
   lower: randomUUID(), accent: randomUUID(), apostrophe: randomUUID(),
   bob: randomUUID(), boss: randomUUID(),
   eng: randomUUID(), sales: randomUUID(), deptB: randomUUID(),
+  designation: randomUUID(), designationB: randomUUID(),
 };
-/** Fields the create contract requires beyond name and number (PRD EMP-001): work email, joining date, department. */
+/** Fields the create endpoint requires beyond the name (PRD EMP-001): work email, joining date, department, designation. */
 let seq = 0;
-const required = (departmentId: string = ID.eng) => ({ workEmail: `new${++seq}@corp.test`, joiningDate: '2026-01-05', departmentId });
+const required = (departmentId: string = ID.eng) => ({ workEmail: `new${++seq}@corp.test`, joiningDate: '2026-01-05', departmentId, designationId: departmentId === ID.deptB ? ID.designationB : ID.designation });
 
 async function seed() {
   await resetData(admin);
@@ -93,6 +94,9 @@ async function seed() {
   await insertDepartment(admin, ID.eng, A, 'Engineering');
   await insertDepartment(admin, ID.sales, A, 'Sales');
   await insertDepartment(admin, ID.deptB, B, 'Other Co Dept');
+  for (const [designation, company] of [[ID.designation, A], [ID.designationB, B]]) {
+    await admin.query('INSERT INTO hr.designations (id, "companyId", name, "updatedAt") VALUES ($1,$2,$3,now())', [designation, company, 'Engineer']);
+  }
 
   await insertEmp(A, { id: ID.hr, number: 'EMP-001', first: 'Hana', last: 'Admin' });
   await insertEmp(A, { id: ID.mgr, number: 'EMP-002', first: 'Mia', last: 'Manager', dept: ID.eng });
@@ -309,7 +313,7 @@ describe('create, edit and status end-to-end (real constraints, real audit rows)
   it('create: normalises, defaults to ONBOARDING, writes a CREATED audit row for the actor', async () => {
     const res = await call('post', 'u-hr', '/employees', {
       employeeNumber: ' emp-100 ', firstName: 'Nina', lastName: 'North', workEmail: ' Nina.North@Corp.TEST ',
-      jobTitle: 'Analyst', joiningDate: '2026-02-01', departmentId: ID.eng, managerId: ID.mgr, employmentType: 'CONTRACT',
+      jobTitle: 'Analyst', joiningDate: '2026-02-01', departmentId: ID.eng, managerId: ID.mgr, employmentType: 'CONTRACT', designationId: ID.designation,
     });
     expect(res.status).toBe(201);
     expect(res.body.data).toMatchObject({ employeeNumber: 'EMP-100', workEmail: 'nina.north@corp.test', status: 'ONBOARDING', employmentType: 'CONTRACT', joiningDate: '2026-02-01', hireDate: '2026-02-01', department: { name: 'Engineering' }, manager: { id: ID.mgr } });

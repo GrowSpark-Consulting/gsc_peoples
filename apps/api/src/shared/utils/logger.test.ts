@@ -4,6 +4,7 @@ import { pinoHttp } from 'pino-http';
 import pino from 'pino';
 import request from 'supertest';
 import { describe, expect, it } from 'vitest';
+import { redactUrl } from '../../middleware/request-logger';
 import { LOG_REDACT_PATHS } from './logger';
 
 /** Real pino-http output captured in memory: no credential may be written to the log. */
@@ -31,6 +32,14 @@ async function logRequest(redact: string[]): Promise<string> {
     .send({ password: 'SECRET-BODY-PASSWORD' });
   return lines.join('\n');
 }
+
+describe('request URLs in logs', () => {
+  it('drops query strings (searches carry names and emails) and signed file tokens', () => {
+    expect(redactUrl('/api/v1/employees?q=jane.doe@example.com')).toBe('/api/v1/employees?[redacted]');
+    expect(redactUrl('/api/v1/documents/local-file/abc.def')).toBe('/api/v1/documents/local-file/[redacted]');
+    expect(redactUrl('/api/v1/health')).toBe('/api/v1/health');
+  });
+});
 
 describe('request logging redaction', () => {
   it('negative control: the previous redact list (authorization + cookie only) DID leak response and CSRF secrets', async () => {

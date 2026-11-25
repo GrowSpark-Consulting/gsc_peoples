@@ -81,7 +81,9 @@ function HrDashboard() {
             <StatCard label="Total employees" value={d.totalEmployees} />
             <StatCard label="Active employees" value={d.activeEmployees} />
             <StatCard label="Present today" value={d.presentToday} />
-            <StatCard label="Not checked in" value={d.absentToday} />
+            {/* PRD DASH-001: "Absent" only after the work day has ended; before that "Not yet in". */}
+            <StatCard label="Absent" value={d.absentToday} />
+            <StatCard label="Not yet in" value={d.notYetInToday} />
             <StatCard label="On leave" value={d.onLeaveToday} />
             <StatCard label="Pending approvals" value={d.pendingApprovals} />
             <StatCard label="Joined in last 30 days" value={d.joinersLast30Days} />
@@ -93,12 +95,34 @@ function HrDashboard() {
               { href: '/attendance', label: 'Attendance', icon: <CalendarCheck aria-hidden /> },
             ]}
           />
-          <Section title="Recent activity">
-            <ActivityList rows={d.recentActivities} />
-          </Section>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Section title="Joiners in the last 30 days">
+              <JoinerList rows={d.joiners} />
+            </Section>
+            <Section title="Recent activity">
+              <ActivityList rows={d.recentActivities} />
+            </Section>
+          </div>
         </div>
       )}
     </QueryBoundary>
+  );
+}
+
+function JoinerList({ rows }: { rows: { id: string; name: string; employeeNumber: string; joiningDate: string }[] }) {
+  if (rows.length === 0) return <EmptyState title="No new joiners" description="People who joined recently appear here." />;
+  return (
+    <ul className="divide-y divide-line">
+      {rows.map((r) => (
+        <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
+          <Link href={`/employees/${r.id}`} className="text-body text-ink underline">
+            {r.name}
+            <span className="text-muted"> · {r.employeeNumber}</span>
+          </Link>
+          <span className="text-small text-muted">{formatDay(r.joiningDate)}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
 
@@ -112,6 +136,7 @@ export function ActivityList({ rows }: { rows: Loose[] }) {
           <span className="text-body text-ink">
             {str(r, 'action') ?? 'Activity'}
             {str(r, 'entity') ? <span className="text-muted"> · {str(r, 'entity')}</span> : null}
+            {str(r, 'actorName') ? <span className="text-muted"> · {str(r, 'actorName')}</span> : null}
           </span>
           <span className="text-small text-muted">
             {str(r, 'createdAt') ? formatTimestamp(str(r, 'createdAt') as string) : ''}
@@ -136,7 +161,8 @@ function ManagerDashboard() {
             <div className={grid}>
               <StatCard label="Team members" value={d.teamMembers} />
               <StatCard label="Present today" value={num(a, 'present') ?? 0} />
-              <StatCard label="Not checked in" value={num(a, 'absent') ?? 0} />
+              <StatCard label="Absent" value={num(a, 'absent') ?? 0} />
+              <StatCard label="Not yet in" value={num(a, 'notYetIn') ?? 0} />
               <StatCard label="On leave" value={num(a, 'onLeave') ?? 0} />
               <StatCard label="Pending approvals" value={d.pendingApprovals} />
             </div>
@@ -158,15 +184,16 @@ function ManagerDashboard() {
 
 function TeamLeave({ rows, names }: { rows: Loose[]; names: Map<string, string> | undefined }) {
   if (rows.length === 0)
-    return <EmptyState title="No approved leave" description="Approved team leave appears here." />;
+    return <EmptyState title="No upcoming leave" description="Current and upcoming team leave appears here." />;
   return (
     <ul className="divide-y divide-line">
       {rows.map((r, i) => (
         <li key={str(r, 'id') ?? i} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-          <span className="text-body text-ink">{names?.get(str(r, 'employeeId') ?? '') ?? 'Team member'}</span>
+          <span className="text-body text-ink">{str(r, 'employeeName') ?? names?.get(str(r, 'employeeId') ?? '') ?? 'Team member'}</span>
           <span className="text-small text-muted">
             {formatDay(str(r, 'startDate')?.slice(0, 10))} – {formatDay(str(r, 'endDate')?.slice(0, 10))}
             {num(r, 'days') !== undefined ? ` · ${num(r, 'days')} day(s)` : ''}
+            {str(r, 'status') === 'PENDING' ? ' · pending' : ''}
           </span>
         </li>
       ))}
@@ -304,7 +331,7 @@ function RequestList({ rows }: { rows: Loose[] }) {
         return (
           <li key={str(r, 'id') ?? i} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
             <span className="text-body text-ink">
-              {str(obj(r, 'leaveType') ?? {}, 'name') ?? 'Leave'}
+              {str(r, 'leaveTypeName') ?? str(obj(r, 'leaveType') ?? {}, 'name') ?? 'Leave'}
               <span className="text-muted"> · {formatDay(str(r, 'startDate')?.slice(0, 10))}</span>
             </span>
             <Badge variant={STATUS_VARIANT[status] ?? 'neutral'}>{STATUS_LABEL[status] ?? status}</Badge>

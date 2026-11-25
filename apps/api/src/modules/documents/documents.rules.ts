@@ -24,6 +24,11 @@ export function checkUpload(file: { mimeType: string; buffer: Buffer; truncated?
   if (!ALLOWED_MIME.has(file.mimeType)) return { ok: false, status: 400, message: 'Unsupported file type' };
   const sigs = SIGNATURES[file.mimeType] ?? [];
   if (!sigs.some((s) => startsWith(file.buffer, s))) return { ok: false, status: 400, message: 'The file content does not match its type' };
+  // A DOCX is a zip container: require the Word package parts, so any other archive renamed .docx is refused.
+  // Zip entry names are stored uncompressed.
+  if (file.mimeType === DOCX && !(file.buffer.includes('[Content_Types].xml') && file.buffer.includes('word/'))) {
+    return { ok: false, status: 400, message: 'The file content does not match its type' };
+  }
   return { ok: true };
 }
 

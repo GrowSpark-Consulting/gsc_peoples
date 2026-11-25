@@ -54,6 +54,8 @@ const envSchema = z
     /** Internal: true when CORS_ORIGINS was provided (the localhost default must not leak into production). */
     CORS_ORIGINS_EXPLICIT: z.boolean().default(false),
     DATABASE_URL: optionalString,
+    /** Connections per API instance. Keep below the pooler's limit for the plan in use. */
+    DATABASE_POOL_MAX: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(50).default(10)),
     /** Explicit database target. `local` (default) never reads any SUPABASE_* variable. */
     DB_TARGET: z.preprocess(emptyToUndefined, z.enum(['local', 'supabase']).default('local')),
     /** Runtime URL for the hr_app role through the Supabase Session Pooler (used only when DB_TARGET=supabase). */
@@ -63,6 +65,22 @@ const envSchema = z
     /** Path to the Supabase CA certificate; verified TLS is mandatory for the supabase target. */
     SUPABASE_CA_CERT_PATH: optionalString,
     REDIS_URL: optionalUrl,
+    /**
+     * Outbound email (invitations and password resets only). `smtp` sends through any SMTP provider.
+     * `disabled` runs without email: invitations answer 503 and reset requests send nothing.
+     * Production must choose explicitly, so a deployment can never silently drop invitation links.
+     */
+    MAIL_DRIVER: z.preprocess(emptyToUndefined, z.enum(['disabled', 'smtp']).optional()),
+    SMTP_HOST: optionalString,
+    SMTP_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(65535).default(587)),
+    /** true = TLS from the first byte (port 465); false = STARTTLS (required in production). */
+    SMTP_SECURE: z.preprocess(emptyToUndefined, z.enum(['true', 'false']).default('false')).transform((v) => v === 'true'),
+    SMTP_USER: optionalString,
+    SMTP_PASSWORD: optionalString,
+    /** Sender, e.g. "GSC Peoples <no-reply@example.com>" on a verified domain. */
+    MAIL_FROM: optionalString,
+    /** Origin of the web app, used to build the links inside emails, e.g. https://app.example.com */
+    WEB_APP_URL: optionalUrl,
     /**
      * development: local dev bearer adapter (never production).
      * session:     first-party email/password with httpOnly cookie sessions (bearer tokens are rejected).
@@ -105,6 +123,27 @@ const envSchema = z
         path: ['CORS_ORIGINS'],
         message: 'CORS_ORIGINS must be set explicitly when NODE_ENV=production',
       });
+    }
+    if (env.NODE_ENV === 'production' && env.CORS_ORIGINS_EXPLICIT) {
+      // Credentialed CORS compares origins exactly: a wildcard, a path or a trailing slash can never work, and a
+      // plain-http origin would receive session cookies over an unprotected channel.
+      for (const origin of env.CORS_ORIGINS) {
+        if (!/^https:\/\/[^\s/*?#]+$/.test(origin)) {
+          ctx.addIssue({ code: 'custom', path: ['CORS_ORIGINS'], message: 'each CORS origin must be an exact https origin such as https://app.example.com (no wildcard, path or trailing slash)' });
+          break;
+        }
+      }
+    }
+    if (env.NODE_ENV === 'production' && !env.MAIL_DRIVER) {
+      ctx.addIssue({ code: 'custom', path: ['MAIL_DRIVER'], message: 'MAIL_DRIVER must be set when NODE_ENV=production: smtp, or disabled to run without invitation and reset emails' });
+    }
+    if (env.MAIL_DRIVER === 'smtp') {
+      for (const k of ['SMTP_HOST', 'MAIL_FROM', 'WEB_APP_URL'] as const) {
+        if (!env[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when MAIL_DRIVER=smtp` });
+      }
+      if (env.NODE_ENV === 'production' && env.WEB_APP_URL && !env.WEB_APP_URL.startsWith('https://')) {
+        ctx.addIssue({ code: 'custom', path: ['WEB_APP_URL'], message: 'WEB_APP_URL must be https when NODE_ENV=production' });
+      }
     }
     if (env.DOCUMENT_STORAGE_DRIVER === 'supabase') {
       for (const k of ['SUPABASE_STORAGE_URL', 'SUPABASE_STORAGE_SERVICE_KEY'] as const) {

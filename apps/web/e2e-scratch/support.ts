@@ -10,6 +10,21 @@ const tsx = path.join(apiDir, 'node_modules/tsx/dist/cli.mjs');
 const script = (...args: string[]) =>
   execFileSync(process.execPath, [tsx, 'scripts/e2e-scratch-db.ts', ...args], { cwd: apiDir, encoding: 'utf8' }).trim();
 
+const MAIL = `http://127.0.0.1:${process.env.E2E_MAIL_PORT ?? 4426}/`;
+export const clearMail = () => fetch(MAIL, { method: 'DELETE' });
+/** Waits for an email to `to` and returns the first link in it. */
+export async function emailedLink(to: string): Promise<string> {
+  let link: string | undefined;
+  await expect
+    .poll(async () => {
+      const messages = (await (await fetch(MAIL)).json()) as { to: string[]; text: string }[];
+      link = /(https?:\/\/\S+token=\S+)/.exec(messages.filter((m) => m.to.includes(to)).at(-1)?.text ?? '')?.[1];
+      return link;
+    }, { message: `email to ${to}`, timeout: 20_000 })
+    .toBeTruthy();
+  return link!;
+}
+
 /** Truncate and re-seed the scratch database (new ids, same emails and password). */
 export const resetDb = () => script('reset');
 /** Run one statement against the scratch database (as its owner) and get the rows. */

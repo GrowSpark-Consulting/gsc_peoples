@@ -3,7 +3,7 @@ import { cleanup, render, screen, waitFor, within } from '@testing-library/react
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { resetSessionCache } from '@/hooks/use-session';
-import { apiError, employeeFixture, employeeList, meBody, mockApi, uuid } from '@/test/api-mock';
+import { apiError, meBody, mockApi, uuid } from '@/test/api-mock';
 import { OnboardingPage } from './onboarding-page';
 
 beforeEach(() => resetSessionCache());
@@ -71,19 +71,24 @@ describe('Employee: own checklist (ONB-003)', () => {
 describe('HR: employees in onboarding (ONB-004, ONB-005)', () => {
   const hr = (extra: Record<string, unknown> = {}) => ({
     'GET /me': { body: meBody('HR_ADMIN', SELF) },
-    'GET /employees': employeeList(employeeFixture(NEWBIE, 'Nina', 'Newhire', { status: 'ONBOARDING', invitationStatus: 'NOT_INVITED' })),
+    'GET /onboarding/progress': ({ query }: { query: URLSearchParams }) => {
+      const rows = [{ employeeId: NEWBIE, employeeNumber: 'EMP-0001', name: 'Nina Newhire', employeeStatus: 'ONBOARDING', invitationStatus: 'NOT_INVITED', progress: progress(1, 2) }];
+      const matching = query.get('status') && query.get('status') !== 'IN_PROGRESS' ? [] : rows;
+      return { body: { data: matching, page: { page: 1, pageSize: 25, total: matching.length } } };
+    },
     [`GET /onboarding/employees/${NEWBIE}/tasks`]: checklist([task({ employeeId: NEWBIE, completed: true }), task({ employeeId: NEWBIE, title: 'Meet team' })]),
     ...extra,
   });
 
-  it('lists onboarding employees with derived status, progress and invite state, asking only for ONBOARDING', async () => {
+  it('lists onboarding employees with derived status, progress and invite state from one request', async () => {
     const api = mockApi(hr() as never);
     render(<OnboardingPage />);
     const row = (await screen.findByText('Nina Newhire')).closest('tr') as HTMLElement;
     expect(within(row).getByText('1 of 2 · 50%')).toBeTruthy();
     expect(within(row).getByText('In progress')).toBeTruthy();
     expect(within(row).getByText('Not invited')).toBeTruthy();
-    expect(api.last('GET /employees')?.query.get('status')).toBe('ONBOARDING');
+    expect(api.keys().filter((k) => k === 'GET /onboarding/progress')).toHaveLength(1);
+    expect(api.keys().some((k) => k === `GET /onboarding/employees/${NEWBIE}/tasks`)).toBe(false);
   });
 
   it('filters by derived status', async () => {

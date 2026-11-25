@@ -49,17 +49,21 @@ function seed(fake: FakeDb) {
   const eng = dept(A, 'Engineering');
   const sales = dept(A, 'Sales');
   const deptB = dept(B, 'Other Co Dept');
+  const engineer = { id: randomUUID(), companyId: A, name: 'Engineer', isActive: true, createdAt: now, updatedAt: now };
+  fake.tables.designation.push(engineer);
+  const engineerB = { ...engineer, id: randomUUID(), companyId: B };
+  fake.tables.designation.push(engineerB);
 
   const hr = emp(A, 'EMP-001', 'Hana', 'Admin');
   const mgr = emp(A, 'EMP-002', 'Mia', 'Manager', { departmentId: eng.id });
   const r1 = emp(A, 'EMP-003', 'Ravi', 'Reddy', { managerId: mgr.id, departmentId: eng.id, hireDate: new Date('2020-01-01T00:00:00Z') });
-  const r2 = emp(A, 'EMP-004', 'Sara', 'Singh', { managerId: mgr.id, departmentId: sales.id, status: 'ONBOARDING' });
+  const r2 = emp(A, 'EMP-004', 'Sara', 'Singh', { managerId: mgr.id, departmentId: sales.id, status: 'ONBOARDING', joiningDate: new Date('2026-01-01T00:00:00Z'), address: '9 Private Road', emergencyContact: 'Private Person' });
   const grand = emp(A, 'EMP-005', 'Gita', 'Grand', { managerId: r1.id });
   const peer = emp(A, 'EMP-006', 'Paul', 'Peer');
   const eve = emp(A, 'EMP-007', 'Eve', 'Employee');
   const bob = emp(B, 'EMP-001', 'Bob', 'Other', { departmentId: deptB.id });
   const bobBoss = emp(B, 'EMP-002', 'Bea', 'Boss');
-  return { eng, sales, deptB, hr, mgr, r1, r2, grand, peer, eve, bob, bobBoss };
+  return { eng, sales, deptB, engineer, engineerB, hr, mgr, r1, r2, grand, peer, eve, bob, bobBoss };
 }
 
 interface Member { userId: string; employeeId: string | null; roleKey: string; permissions: string[] }
@@ -81,6 +85,7 @@ describe('Employee API', () => {
     s = seed(fake);
     members = new Map<string, Member>([
       [`u-hr|${A}`, { userId: 'user-hr', employeeId: s.hr.id, roleKey: 'HR_ADMIN', permissions: HR_PERMS }],
+      [`u-sa|${A}`, { userId: 'user-sa', employeeId: null, roleKey: 'SUPER_ADMIN', permissions: [...ROLE_DEFAULT_PERMISSIONS.SUPER_ADMIN] }],
       [`u-hr-nostatus|${A}`, { userId: 'user-hr2', employeeId: s.hr.id, roleKey: 'HR_ADMIN', permissions: [P.EMPLOYEE_READ_ALL, P.EMPLOYEE_WRITE] }],
       [`u-mgr|${A}`, { userId: 'user-mgr', employeeId: s.mgr.id, roleKey: 'MANAGER', permissions: [...ROLE_DEFAULT_PERMISSIONS.MANAGER] }],
       [`u-emp|${A}`, { userId: 'user-emp', employeeId: s.eve.id, roleKey: 'EMPLOYEE', permissions: [...ROLE_DEFAULT_PERMISSIONS.EMPLOYEE] }],
@@ -98,8 +103,8 @@ describe('Employee API', () => {
   const hr = `t:u-hr:${A}`;
   const mgr = `t:u-mgr:${A}`;
   const emp = `t:u-emp:${A}`;
-  /** Fields the create contract requires beyond name and number (PRD EMP-001): work email, joining date, department. */
-  const required = (departmentId = s.eng.id) => ({ workEmail: `${randomUUID()}@corp.test`, joiningDate: '2026-01-05', departmentId });
+  /** Fields the create endpoint requires beyond the name (PRD EMP-001): work email, joining date, department, designation. */
+  const required = (departmentId = s.eng.id) => ({ workEmail: `${randomUUID()}@corp.test`, joiningDate: '2026-01-05', departmentId, designationId: s.engineer.id });
   const lastNames = (res: request.Response) => (res.body.data as { lastName: string }[]).map((e) => e.lastName);
 
   describe('authentication and company resolution', () => {
@@ -227,7 +232,7 @@ describe('Employee API', () => {
     it('company B only sees its own people, and the same employee number can exist in both companies', async () => {
       const res = await get(`t:u-hrb:${B}`, '/employees');
       expect(lastNames(res)).toEqual(['Boss', 'Other']);
-      expect((await post(`t:u-hrb:${B}`, '/employees', { ...required(s.deptB.id), employeeNumber: 'emp-077', firstName: 'B', lastName: 'New' })).status).toBe(201);
+      expect((await post(`t:u-hrb:${B}`, '/employees', { ...required(s.deptB.id), designationId: s.engineerB.id, employeeNumber: 'emp-077', firstName: 'B', lastName: 'New' })).status).toBe(201);
       expect((await post(hr, '/employees', { ...required(), employeeNumber: 'emp-077', firstName: 'A', lastName: 'New' })).status).toBe(201);
     });
 
@@ -264,7 +269,7 @@ describe('Employee API', () => {
     it('creates with a manually entered number (stored upper-case), audits it, returns 201', async () => {
       const res = await post(hr, '/employees', {
         employeeNumber: ' emp-100 ', firstName: 'Nina', lastName: 'North', workEmail: ' Nina.North@Corp.TEST ',
-        jobTitle: 'Analyst', joiningDate: '2026-02-01', departmentId: s.eng.id, managerId: s.mgr.id,
+        jobTitle: 'Analyst', joiningDate: '2026-02-01', departmentId: s.eng.id, managerId: s.mgr.id, designationId: s.engineer.id,
       });
       expect(res.status).toBe(201);
       expect(res.body.data).toMatchObject({
@@ -291,9 +296,9 @@ describe('Employee API', () => {
         expect((await post(hr, '/employees', { ...ok, ...extra })).status, JSON.stringify(extra)).toBe(400);
       }
       expect((await post(hr, '/employees', { firstName: 'A', lastName: 'B' })).status).toBe(400);
-      // each field the contract requires is individually required (EMP-001: work email, joining date, department)
-      for (const missing of ['workEmail', 'joiningDate', 'departmentId'] as const) {
-        const { [missing]: _omit, ...rest } = ok;
+      // each required field is individually required (EMP-001: work email, joining date, department, designation)
+      for (const missing of ['workEmail', 'joiningDate', 'departmentId', 'designationId'] as const) {
+        const rest = Object.fromEntries(Object.entries(ok).filter(([key]) => key !== missing));
         const res = await post(hr, '/employees', rest);
         expect(res.status, missing).toBe(400);
         expect(res.body.error.details.some((d: { path: string[] }) => d.path[0] === missing), missing).toBe(true);
@@ -358,7 +363,7 @@ describe('Employee API', () => {
     });
 
     it('409 when renaming to an existing employee number; 400 on empty or unknown fields', async () => {
-      expect((await patch(hr, `/employees/${s.peer.id}`, { employeeNumber: 'emp-001' })).status).toBe(409);
+      expect((await patch(`t:u-sa:${A}`, `/employees/${s.peer.id}`, { employeeNumber: 'emp-001' })).status).toBe(409); // Super Admin only (W9)
       expect((await patch(hr, `/employees/${s.peer.id}`, {})).status).toBe(400);
       expect((await patch(hr, `/employees/${s.peer.id}`, { status: 'TERMINATED' })).status).toBe(400);
       expect((await patch(hr, `/employees/${s.peer.id}`, { companyId: B })).status).toBe(400);
@@ -416,6 +421,50 @@ describe('Employee API', () => {
     it('every role may view departments (PRD ORG-002); a caller with no org permission gets 403', async () => {
       expect((await get(emp, '/departments')).status).toBe(200);
       expect((await get(mgr, '/departments')).status).toBe(200);
+    });
+  });
+
+  describe('privacy (PRD section 5): address and emergency contact are for HR, Super Admin and the owner', () => {
+    it('hides them from a manager on read, list and timeline, and shows work and contact fields', async () => {
+      const detail = await get(mgr, `/employees/${s.r2.id}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.data).toMatchObject({ address: null, emergencyContact: null, workEmail: 'sara.singh@company-a.test' });
+      const list = await get(mgr, '/employees');
+      expect(JSON.stringify(list.body)).not.toContain('Private');
+      await patch(hr, `/employees/${s.r2.id}`, { address: '10 Secret Street', jobTitle: 'Analyst' });
+      const timeline = await get(mgr, `/employees/${s.r2.id}/timeline`);
+      expect(timeline.status).toBe(200);
+      expect(JSON.stringify(timeline.body)).not.toMatch(/Secret|Private/);
+      expect(JSON.stringify(timeline.body)).toContain('Analyst');
+    });
+    it('shows them to HR', async () => {
+      const res = await get(hr, `/employees/${s.r2.id}`);
+      expect(res.body.data).toMatchObject({ address: '9 Private Road', emergencyContact: 'Private Person' });
+    });
+    it('the directory gives every role name, title, department and work email only', async () => {
+      const res = await get(emp, '/employees/directory?q=sara');
+      expect(res.status).toBe(200);
+      expect(Object.keys(res.body.data[0]).sort()).toEqual(['departmentName', 'firstName', 'id', 'lastName', 'title', 'workEmail']);
+      expect(JSON.stringify(res.body)).not.toContain('Private');
+    });
+    it('a self-update changes only the fields sent', async () => {
+      fake.tables.employee.find((e) => e.id === s.eve.id)!.phone = '111';
+      const res = await patch(emp, '/employees/me', { address: 'New address' });
+      expect(res.status).toBe(200);
+      expect(res.body.data).toMatchObject({ phone: '111', address: 'New address' });
+    });
+  });
+
+  describe('Super Admin only fields and concurrent edits (PRD W9)', () => {
+    it('HR cannot change the employee ID or an existing joining date', async () => {
+      expect((await patch(hr, `/employees/${s.peer.id}`, { employeeNumber: 'EMP-900' })).status).toBe(403);
+      expect((await patch(hr, `/employees/${s.r2.id}`, { joiningDate: '2025-01-01' })).status).toBe(403);
+      expect((await patch(hr, `/employees/${s.peer.id}`, { joiningDate: '2025-01-01' })).status).toBe(200); // filling an empty date
+    });
+    it('a stale expectedUpdatedAt is a 409 and writes nothing', async () => {
+      const res = await patch(hr, `/employees/${s.peer.id}`, { jobTitle: 'X', expectedUpdatedAt: '2020-01-01T00:00:00.000Z' });
+      expect(res.status).toBe(409);
+      expect(fake.tables.employeeAuditLog).toHaveLength(0);
     });
   });
 

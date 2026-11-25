@@ -2,6 +2,7 @@
 
 import { Building2, ChevronDown, LogOut, Menu } from 'lucide-react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { Avatar } from '@/components/ui/avatar';
 import { buttonVariants } from '@/components/ui/button';
@@ -30,6 +31,7 @@ export function TopBar({
   onMenuClick,
   menuButtonRef,
 }: TopBarProps) {
+  const router = useRouter();
   const me = useCurrentUser();
   const who = me ? `${me.displayName} · ${ROLE_LABELS[me.roleKey]}` : null;
   return (
@@ -81,7 +83,8 @@ export function TopBar({
             credentials: 'include',
             headers: { 'X-CSRF-Token': csrf },
           }).catch(() => undefined);
-          window.location.assign('/login');
+          router.replace('/login');
+          router.refresh();
         }}
         className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'rounded-full')}
       >

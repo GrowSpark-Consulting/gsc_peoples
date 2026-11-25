@@ -36,6 +36,8 @@ import { createLeaveRouter } from './modules/leave/leave.routes';
 import { createDocumentsRouter, createLocalFileRouter } from './modules/documents/documents.routes';
 import { createDocumentStorage, type DocumentStorage, type LocalDocumentStorage } from './integrations/storage';
 import { SessionAuthProvider } from './integrations/local-auth/session-provider';
+import { createMailer, type Mailer } from './integrations/mail';
+import { createInvitationService } from './modules/auth/invitations';
 import { healthRouter } from './modules/health/health.routes';
 import { API_PREFIX } from './shared/constants';
 
@@ -45,10 +47,12 @@ export interface AppDependencies {
   sessionProvider?: CentralAuthProvider;
   resolveMembership?: MembershipResolver;
   tenantRunner?: TenantRunner;
-  /** Test seam: the attendance clock (default: wall-clock time). */
+  /** Test seam: the clock behind attendance, leave and dashboard date rules (default: wall-clock time). */
   clock?: () => Date;
   /** Document object storage. Default: the driver selected by DOCUMENT_STORAGE_DRIVER. */
   documentStorage?: DocumentStorage;
+  /** Outbound email. Default: the driver selected by MAIL_DRIVER. */
+  mailer?: Mailer;
 }
 
 export function createApp(deps: AppDependencies = {}): Express {
@@ -101,7 +105,8 @@ export function createApp(deps: AppDependencies = {}): Express {
   if (!prisma && !deps.sessionProvider && env.AUTH_MODE !== 'development') {
     throw new Error(`AUTH_MODE=${env.AUTH_MODE} requires a configured database (DATABASE_URL)`);
   }
-  if (prisma) api.use('/auth', createAuthRouter(prisma));
+  const mailer = deps.mailer ?? createMailer(env);
+  if (prisma) api.use('/auth', createAuthRouter(prisma, { mailer, webAppUrl: env.WEB_APP_URL }));
 
   // Everything registered after this line requires authentication (who you are) ...
   api.use(authenticate(
@@ -128,8 +133,13 @@ export function createApp(deps: AppDependencies = {}): Express {
   // (`app.company_id`, set from the validated membership by `resolveTenant`). A raw PrismaClient here would
   // see no rows at all once RLS is enabled on the table (fail closed), so never pass `prisma` itself.
   const tenantPrisma = prisma ? withRequestTenantContext(prisma) : undefined;
-  if (tenantPrisma) api.use('/settings', tenant, createSettingsRouter(tenantPrisma));
-  api.use('/employees', tenant, createEmployeesRouter(createEmployeeService(createEmployeeRepository(tenantRunner))));
+  // One invitation implementation behind both the employee record and the user-accounts screen. The raw token is
+  // returned to the caller only outside production, for local development and tests.
+  const invitations = tenantPrisma
+    ? createInvitationService(tenantPrisma, { mailer, webAppUrl: env.WEB_APP_URL, exposeToken: env.NODE_ENV !== 'production' })
+    : undefined;
+  if (tenantPrisma && invitations) api.use('/settings', tenant, createSettingsRouter(tenantPrisma, tenantRunner, invitations));
+  api.use('/employees', tenant, createEmployeesRouter(createEmployeeService(createEmployeeRepository(tenantRunner), invitations)));
   // Keep legacy read-only departments endpoint for existing consumers, and also expose full org routes.
   api.use('/holidays', tenant, createHolidaysRouter(createHolidayRepository(tenantRunner)));
   api.use('/departments', tenant, createDepartmentsRouter(createDepartmentRepository(tenantRunner)));
@@ -137,9 +147,9 @@ export function createApp(deps: AppDependencies = {}): Express {
     api.use('/organization', tenant, createOrganizationRouter(tenantPrisma, tenantRunner));
     api.use('/onboarding', tenant, createOnboardingRouter(tenantPrisma, tenantRunner));
     api.use('/attendance', tenant, createAttendanceRouter(tenantPrisma, tenantRunner, { now: deps.clock }));
-    api.use('/leave', tenant, createLeaveRouter(tenantPrisma, tenantRunner));
+    api.use('/leave', tenant, createLeaveRouter(tenantPrisma, tenantRunner, { now: deps.clock }));
     api.use('/documents', tenant, createDocumentsRouter(tenantPrisma, tenantRunner, documentStorage));
-    api.use('/dashboard', tenant, createDashboardRouter(tenantPrisma));
+    api.use('/dashboard', tenant, createDashboardRouter(tenantPrisma, tenantRunner, { now: deps.clock }));
     api.use('/notifications', tenant, createNotificationsRouter(tenantPrisma));
   }
 

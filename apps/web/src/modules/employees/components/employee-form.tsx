@@ -1,6 +1,6 @@
 'use client';
 
-import type { Employee } from '@gsc/contracts';
+import type { Employee, UpdateEmployeeInput } from '@gsc/contracts';
 import { useState } from 'react';
 import { useForm, type Resolver } from 'react-hook-form';
 import { FormError, FormSection } from '@/components/shared/form-layout';
@@ -23,8 +23,13 @@ import {
 } from '../form-model';
 import { TYPE_LABEL } from '../format';
 import { useDepartments } from '../hooks/use-employees';
+import { useAsyncData } from '../hooks/use-async-data';
+import { listDesignationOptions } from '../record-api';
 import { useEmployeesContext } from '../state/employees-context';
 import { ManagerPicker } from './manager-picker';
+
+/** Stands in for a number the server will generate, so the rest of the form can be validated. */
+const PLACEHOLDER_NUMBER = 'AUTO';
 
 const resolver: Resolver<EmployeeFormValues> = (values) => {
   const result = validateForm(values);
@@ -38,6 +43,13 @@ const resolver: Resolver<EmployeeFormValues> = (values) => {
       ]),
     ) as never,
   };
+};
+
+const generatedNumberResolver: Resolver<EmployeeFormValues> = (values, context, options) => {
+  if (values.employeeNumber.trim() !== '') return resolver(values, context, options);
+  const result = validateForm({ ...values, employeeNumber: PLACEHOLDER_NUMBER });
+  if (result.ok) return { values, errors: {} };
+  return { values: {}, errors: Object.fromEntries(Object.entries(result.errors).map(([field, message]) => [field, { type: 'validation', message }])) as never };
 };
 
 export interface EmployeeFormProps {
@@ -54,8 +66,24 @@ export interface EmployeeFormProps {
  * right field or in a form-level alert. Status is changed separately (see StatusChangePanel).
  */
 export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeFormProps) {
-  const { service } = useEmployeesContext();
+  const { service, session } = useEmployeesContext();
   const departments = useDepartments();
+  // Designation and contact details exist on the real API; the development demo adapter does not model them.
+  const live = service.kind === 'http';
+  const isSuperAdmin = session.roleKey === 'SUPER_ADMIN';
+  const designations = useAsyncData('designation-options', listDesignationOptions, live);
+  const [extra, setExtra] = useState({
+    designationId: employee?.designation?.id ?? '',
+    phone: employee?.phone ?? '',
+    address: employee?.address ?? '',
+    emergencyContact: employee?.emergencyContact ?? '',
+  });
+  const [extraErrors, setExtraErrors] = useState<Record<string, string>>({});
+  const setExtraValue = (key: keyof typeof extra, value: string) => setExtra((x) => ({ ...x, [key]: value }));
+  // PRD W9: only a Super Admin changes the employee ID or an existing joining date.
+  const lockNumber = live && mode === 'edit' && !isSuperAdmin;
+  const lockJoining = lockNumber && Boolean(employee?.hireDate);
+  const orNull = (s: string) => (s.trim() === '' ? null : s.trim());
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [manager, setManager] = useState<ManagerOption | null>(
@@ -70,7 +98,8 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
     formState: { errors, isSubmitting },
   } = useForm<EmployeeFormValues>({
     defaultValues: employee ? valuesFromEmployee(employee) : EMPTY_FORM,
-    resolver,
+    // On the real API a new employee ID is generated when the field is left empty (PRD EMP-002).
+    resolver: live && mode === 'create' ? generatedNumberResolver : resolver,
   });
 
   const showServerError = (e: unknown) => {
@@ -101,21 +130,44 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
   const submit = handleSubmit(async (values) => {
     setFormError(null);
     setNotice(null);
-    const checked = validateForm(values);
+    setExtraErrors({});
+    const generate = live && mode === 'create' && values.employeeNumber.trim() === '';
+    const checked = validateForm(generate ? { ...values, employeeNumber: PLACEHOLDER_NUMBER } : values);
     if (!checked.ok) return;
+    if (live && mode === 'create') {
+      // PRD EMP-001: joining date and designation are required.
+      if (!values.hireDate) return setError('hireDate', { type: 'validation', message: 'Enter the joining date' });
+      if (!extra.designationId) return setExtraErrors({ designationId: 'Choose a designation' });
+    }
     try {
       if (mode === 'create') {
-        onSaved(await service.create(toPayload(values)));
+        const payload = toPayload(values);
+        if (generate) delete payload.employeeNumber;
+        onSaved(
+          await service.create(
+            live
+              ? { ...payload, designationId: extra.designationId, phone: orNull(extra.phone), address: orNull(extra.address), emergencyContact: orNull(extra.emergencyContact) }
+              : payload,
+          ),
+        );
         return;
       }
       if (!employee) throw new Error('Edit mode needs an employee');
-      const changes = diffForUpdate(employee, checked.data);
+      const changes: UpdateEmployeeInput = diffForUpdate(employee, checked.data);
+      if (live) {
+        if ((extra.designationId || null) !== (employee.designation?.id ?? null)) changes.designationId = extra.designationId || null;
+        for (const key of ['phone', 'address', 'emergencyContact'] as const) {
+          if (orNull(extra[key]) !== (employee[key] ?? null)) changes[key] = orNull(extra[key]);
+        }
+      }
       if (Object.keys(changes).length === 0) {
         setNotice('There are no changes to save.');
         return;
       }
-      onSaved(await service.update(employee.id, changes));
+      // A record changed by someone else since it was loaded is refused (PRD W9).
+      onSaved(await service.update(employee.id, live ? { ...changes, expectedUpdatedAt: employee.updatedAt } : changes));
     } catch (e) {
+      if (isApiError(e) && e.fieldErrors.designationId) setExtraErrors({ designationId: e.fieldErrors.designationId });
       showServerError(e);
     }
   });
@@ -138,10 +190,17 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
       <FormSection title="Identity">
         <Field
           label="Employee number"
-          required
-          helper="Entered by HR, for example GS-0100. Stored in upper case and must be unique."
+          required={!(live && mode === 'create')}
+          helper={
+            live && mode === 'create'
+              ? 'Leave empty to generate the next number. Must be unique.'
+              : lockNumber
+                ? 'Only a Super Admin can change the employee number.'
+                : 'Entered by HR, for example GS-0100. Stored in upper case and must be unique.'
+          }
           error={errors.employeeNumber?.message}
           autoComplete="off"
+          readOnly={lockNumber}
           {...register('employeeNumber')}
         />
         <Field
@@ -188,10 +247,41 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
         <Field
           label="Hire date"
           type="date"
+          required={live && mode === 'create'}
+          helper={lockJoining ? 'Only a Super Admin can change the joining date.' : undefined}
           error={errors.hireDate?.message}
+          readOnly={lockJoining}
           {...register('hireDate')}
         />
+        {live ? (
+          <SelectField
+            label="Designation"
+            required={mode === 'create'}
+            value={extra.designationId}
+            onChange={(e) => setExtraValue('designationId', e.target.value)}
+            error={extraErrors.designationId ?? (designations.status === 'error' ? 'Could not load designations. Reload the page to try again.' : undefined)}
+            helper={designations.status === 'success' && (designations.data ?? []).length === 0 ? 'Add a designation on the Departments page first.' : undefined}
+          >
+            <option value="">No designation</option>
+            {employee?.designation && !(designations.data ?? []).some((d) => d.id === employee.designation!.id) ? (
+              <option value={employee.designation.id}>{employee.designation.name}</option>
+            ) : null}
+            {(designations.data ?? []).map((d) => (
+              <option key={d.id} value={d.id}>
+                {d.name}
+              </option>
+            ))}
+          </SelectField>
+        ) : null}
       </FormSection>
+
+      {live ? (
+        <FormSection title="Contact" description="Visible only to HR, Super Admins and the employee.">
+          <Field label="Phone" value={extra.phone} onChange={(e) => setExtraValue('phone', e.target.value)} autoComplete="off" />
+          <Field label="Address" value={extra.address} onChange={(e) => setExtraValue('address', e.target.value)} autoComplete="off" />
+          <Field label="Emergency contact" value={extra.emergencyContact} onChange={(e) => setExtraValue('emergencyContact', e.target.value)} autoComplete="off" />
+        </FormSection>
+      ) : null}
 
       <FormSection
         title="Reporting"

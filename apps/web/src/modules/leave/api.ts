@@ -1,5 +1,7 @@
 import {
   leaveBalanceListResponseSchema,
+  leaveCalendarResponseSchema,
+  type LeaveCalendarScope,
   leaveRequestListResponseSchema,
   leaveTypeListResponseSchema,
   type adjustLeaveBalanceSchema,
@@ -28,7 +30,7 @@ export const adjustBalance = (body: z.input<typeof adjustLeaveBalanceSchema>) =>
 export interface RequestFilters {
   /** Restrict to one employee (the caller's own history, or someone they may see). */
   employeeId?: string;
-  /** Only requests waiting for the caller (direct reports). */
+  /** Only requests waiting for the caller's decision. */
   pendingForMe?: boolean;
   status?: readonly string[];
   page: number;
@@ -50,3 +52,7 @@ export const decideRequest = (id: string, body: z.input<typeof leaveRequestDecis
   apiRequest(`/leave/requests/${encodeURIComponent(id)}/review`, { method: 'PATCH', body });
 export const cancelRequest = (id: string) =>
   apiRequest(`/leave/requests/${encodeURIComponent(id)}/cancel`, { method: 'PATCH' });
+
+/** LEAVE-008: one month of own, team or company leave with holidays. */
+export const getCalendar = (q: { year: number; month: number; scope: LeaveCalendarScope }) =>
+  apiRequest('/leave/calendar', { query: { year: q.year, month: q.month, scope: q.scope }, schema: leaveCalendarResponseSchema });

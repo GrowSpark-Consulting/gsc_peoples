@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- the tenant facade returns untyped rows (database/tenant/tenant-db.ts) */
 import { Router } from 'express';
 import { notificationListQuerySchema, PERMISSIONS } from '@gsc/contracts';
 import type { PrismaClient } from '../../database/generated/client';

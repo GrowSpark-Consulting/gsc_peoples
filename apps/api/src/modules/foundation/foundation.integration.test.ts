@@ -25,6 +25,7 @@ import { resolveTeamEmployeeIds } from '../authorization/team-scope';
 const PASSWORD = 'correct-horse-battery';
 const A = randomUUID();
 const DEPT_A = randomUUID(); // a department in company A: the create contract requires one (PRD EMP-001)
+const DESIGNATION_A = randomUUID(); // and a designation
 const B = randomUUID();
 const id = () => randomUUID();
 
@@ -108,6 +109,7 @@ beforeEach(async () => {
   await admin.query(`INSERT INTO hr.companies (id,name,timezone,"updatedAt") VALUES ($1,'Acme','Asia/Kolkata',now())`, [A]);
   await admin.query(`INSERT INTO hr.companies (id,name,"updatedAt") VALUES ($1,'Other Co',now())`, [B]);
   await admin.query(`INSERT INTO hr.departments (id,"companyId",name,"updatedAt") VALUES ($1,$2,'Engineering',now())`, [DEPT_A, A]);
+  await admin.query(`INSERT INTO hr.designations (id,"companyId",name,"updatedAt") VALUES ($1,$2,'Engineer',now())`, [DESIGNATION_A, A]);
   const roleIds: Record<string, string> = {};
   for (const company of [A, B]) {
     for (const key of ROLE_KEYS) {
@@ -301,7 +303,7 @@ describe('team scope = direct and indirect reports (PRD section 5)', () => {
   });
 
   it('only SA and HR can write employees (direct API calls)', async () => {
-    const body = { employeeNumber: 'EMP-900', firstName: 'N', lastName: 'W', workEmail: 'n.w@acme.test', joiningDate: '2026-01-05', departmentId: DEPT_A };
+    const body = { employeeNumber: 'EMP-900', firstName: 'N', lastName: 'W', workEmail: 'n.w@acme.test', joiningDate: '2026-01-05', departmentId: DEPT_A, designationId: DESIGNATION_A };
     expect((await api('hr', 'post', '/employees', body)).status).toBe(201);
     expect((await api('sa', 'post', '/employees', { ...body, employeeNumber: 'EMP-901', workEmail: 'n.w1@acme.test' })).status).toBe(201);
     for (const who of ['mgr', 'emp']) {

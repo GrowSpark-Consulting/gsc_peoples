@@ -10,6 +10,25 @@ const nextConfig: NextConfig = {
   ...(process.env.NEXT_DIST_DIR ? { distDir: process.env.NEXT_DIST_DIR } : {}),
   // Workspace packages are consumed as TypeScript source.
   transpilePackages: ['@gsc/shared', '@gsc/contracts'],
+  poweredByHeader: false,
+  async headers() {
+    return [
+      {
+        source: '/:path*',
+        headers: [
+          // No framing (clickjacking), no MIME sniffing, no device APIs.
+          { key: 'X-Frame-Options', value: 'DENY' },
+          { key: 'Content-Security-Policy', value: "frame-ancestors 'none'; base-uri 'self'; object-src 'none'" },
+          { key: 'X-Content-Type-Options', value: 'nosniff' },
+          { key: 'Permissions-Policy', value: 'camera=(), microphone=(), geolocation=()' },
+          { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+          { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
+        ],
+      },
+      // These pages carry a single-use token in the URL: it must never leave in a Referer header.
+      ...['/reset-password', '/accept-invitation'].map((source) => ({ source, headers: [{ key: 'Referrer-Policy', value: 'no-referrer' }] })),
+    ];
+  },
 };
 
 /**

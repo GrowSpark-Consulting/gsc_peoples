@@ -76,6 +76,8 @@ async function seed(c: pg.Client) {
     }
   const dept = randomUUID();
   await c.query(`INSERT INTO hr.departments (id,"companyId",name,"updatedAt") VALUES ($1,$2,'Engineering',now())`, [dept, A]);
+  await c.query(`INSERT INTO hr.designations (id,"companyId",name,"updatedAt") VALUES ($1,$2,'Software Engineer',now())`, [randomUUID(), A]);
+  await c.query(`INSERT INTO hr.onboarding_template_tasks (id,"companyId",title,"dueOffsetDays","assigneeType","updatedAt") VALUES ($1,$2,'Upload your ID proof',2,'EMPLOYEE',now())`, [randomUUID(), A]);
   const hash = hashPassword(PASSWORD);
   const people: Record<string, { user: string; emp: string }> = {};
   async function person(company: string, key: string, role: string, manager?: string, first = key, last = 'E2E') {

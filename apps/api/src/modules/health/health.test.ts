@@ -32,6 +32,15 @@ describe('GET /api/v1/health', () => {
     expect(res.headers['content-security-policy']).toBeDefined();
   });
 
+  it('answers a malformed cookie, an oversized body and broken JSON with client errors, never 500', async () => {
+    expect((await request(app).get('/api/v1/me').set('cookie', 'gsc_session=%E0%A4%A')).status).toBe(401);
+    const tooLarge = await request(app).post('/api/v1/anything').set('content-type', 'application/json').send(`{"a":"${'x'.repeat(1_100_000)}"}`);
+    expect(tooLarge.status).toBe(413);
+    const broken = await request(app).post('/api/v1/anything').set('content-type', 'application/json').send('{"password":"hunter2"');
+    expect(broken.status).toBe(400);
+    expect(JSON.stringify(broken.body)).not.toContain('hunter2');
+  });
+
   it('rejects unauthenticated requests to non-public routes', async () => {
     const res = await request(app).get('/api/v1/nope');
     expect(res.status).toBe(401);

@@ -1,3 +1,5 @@
+> **Superseded on 2026-11-25** by [production-migration-and-bootstrap.md](../development/production-migration-and-bootstrap.md). Kept for history; do not follow the steps below.
+
 # Supabase production migration (PREPARED, NOT EXECUTED)
 
 Every command here writes to or reads the hosted database and needs explicit approval [APPROVAL]. Run from the operator's machine (never from Render/Vercel), from `apps/api`, in PowerShell. Source of the verified connection behaviour: `apps/api/prisma.config.ts`, `docs/development/supabase-deployment-commands.md`.

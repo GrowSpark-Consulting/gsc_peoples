@@ -5,10 +5,13 @@ export const hrDashboardResponseSchema = z.object({
     totalEmployees: z.number().int(),
     activeEmployees: z.number().int(),
     presentToday: z.number().int(),
+    /** PRD DASH-001: non-zero only after the work day has ended; before that people are "not yet in". */
     absentToday: z.number().int(),
+    notYetInToday: z.number().int(),
     onLeaveToday: z.number().int(),
     pendingApprovals: z.number().int(),
     joinersLast30Days: z.number().int(),
+    joiners: z.array(z.object({ id: z.string(), name: z.string(), employeeNumber: z.string(), joiningDate: z.string() })),
     recentActivities: z.array(z.record(z.string(), z.unknown())),
   }),
 });

@@ -6,12 +6,18 @@ const pdf = Buffer.concat([Buffer.from('%PDF-1.7\n'), Buffer.alloc(100)]);
 const png = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.alloc(20)]);
 const jpg = Buffer.concat([Buffer.from([0xff, 0xd8, 0xff, 0xe0]), Buffer.alloc(20)]);
 const zip = Buffer.concat([Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.alloc(20)]);
+/** A zip whose entry names are those of a Word package. */
+const docx = Buffer.concat([zip, Buffer.from('[Content_Types].xml word/document.xml')]);
 
 describe('checkUpload', () => {
   it('accepts each allowed type with a matching signature', () => {
-    for (const [mimeType, buffer] of [['application/pdf', pdf], ['image/png', png], ['image/jpeg', jpg], [DOCX, zip]] as const)
+    for (const [mimeType, buffer] of [['application/pdf', pdf], ['image/png', png], ['image/jpeg', jpg], [DOCX, docx]] as const)
       expect(checkUpload({ mimeType, buffer }), mimeType).toEqual({ ok: true });
   });
+  it('rejects an ordinary zip archive renamed to .docx', () => {
+    expect(checkUpload({ mimeType: DOCX, buffer: zip })).toMatchObject({ ok: false, status: 400 });
+  });
+
   it('rejects a disallowed MIME type even with plausible bytes', () => {
     expect(checkUpload({ mimeType: 'text/html', buffer: Buffer.from('<html>') })).toMatchObject({ ok: false, status: 400, message: 'Unsupported file type' });
     expect(checkUpload({ mimeType: 'application/x-msdownload', buffer: Buffer.from('MZ....') })).toMatchObject({ ok: false, status: 400 });

@@ -367,6 +367,45 @@ function ManualCorrectionDialog({
 
 /* ---------------- History (ATT-003) ---------------- */
 
+/** Every day of the month with its status; the totals above are counted from exactly these rows. */
+function MonthDays({ days, tz }: { days: NonNullable<Awaited<ReturnType<typeof getHistory>>['days']>; tz?: string }) {
+  return (
+    <Table label="Attendance records">
+      <TableHeader>
+        <TableRow>
+          <TableHead>Date</TableHead>
+          <TableHead>Check in</TableHead>
+          <TableHead>Check out</TableHead>
+          <TableHead align="right">Hours</TableHead>
+          <TableHead>Status</TableHead>
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {days.length === 0 ? (
+          <TableEmpty colSpan={5}>
+            <EmptyState title="No attendance records" description="Nothing was recorded for this month." />
+          </TableEmpty>
+        ) : (
+          [...days].reverse().map((d) => (
+            <TableRow key={d.date}>
+              <TableCell>{formatDay(d.date)}</TableCell>
+              <TableCell>{formatTime(d.checkInAt, tz)}</TableCell>
+              <TableCell>{formatTime(d.checkOutAt, tz)}</TableCell>
+              <TableCell numeric align="right">{formatHours(d.workedMinutes === null ? null : d.workedMinutes / 60)}</TableCell>
+              <TableCell>
+                <Badge variant={OVERVIEW_VARIANT[d.status]}>{OVERVIEW_LABEL[d.status]}</Badge>
+                {d.holidayName ? <span className="block text-small text-muted">{d.holidayName}</span> : null}
+                {d.halfDayLeave ? <span className="block text-small text-muted">Half-day leave</span> : null}
+                {d.corrected ? <span className="block text-small text-muted">Corrected</span> : null}
+              </TableCell>
+            </TableRow>
+          ))
+        )}
+      </TableBody>
+    </Table>
+  );
+}
+
 function HistorySection({ session, canSeeOthers, tz }: { session: Session; canSeeOthers: boolean; tz?: string }) {
   const now = new Date();
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -442,8 +481,12 @@ function HistorySection({ session, canSeeOthers, tz }: { session: Session; canSe
             <p className="mb-3 text-small text-muted">
               Present {q.data.summary.present} · Absent {q.data.summary.absent} · On leave {q.data.summary.onLeave} ·
               Holidays {q.data.summary.holidays} · Hours {formatHours(q.data.summary.hoursWorked)}
+              {q.data.summary.missingCheckout ? ` · Missing check-out ${q.data.summary.missingCheckout}` : ''}
             </p>
           ) : null}
+          {q.data?.days ? (
+            <MonthDays days={q.data.days} tz={tz} />
+          ) : (
           <Table label="Attendance records">
             <TableHeader>
               <TableRow>
@@ -476,7 +519,8 @@ function HistorySection({ session, canSeeOthers, tz }: { session: Session; canSe
               )}
             </TableBody>
           </Table>
-          {q.status === 'success' && total > 0 ? (
+          )}
+          {q.status === 'success' && !q.data?.days && total > 0 ? (
             <div className="mt-4">
               <CursorPagination
                 page={page}
@@ -615,7 +659,7 @@ export function zonedToIso(date: string, time: string, tz: string | undefined): 
 
 function CorrectionDialog({ tz, onClose, onDone }: { tz?: string; onClose: () => void; onDone: () => void }) {
   const today = todayIn(tz);
-  const [date, setDate] = useState(today);
+  const [date, setDate] = useState(() => addDays(today, -1));
   const [inTime, setInTime] = useState('09:00');
   const [outTime, setOutTime] = useState('18:00');
   const [reason, setReason] = useState('');

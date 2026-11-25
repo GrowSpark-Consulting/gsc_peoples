@@ -31,7 +31,7 @@ export function createPrismaClient(
  */
 export function getPrisma(): PrismaClient {
   if (!env.DATABASE_URL) throw new Error('DATABASE_URL is not configured');
-  client ??= createPrismaClient(env.DATABASE_URL);
+  client ??= createPrismaClient(env.DATABASE_URL, { max: env.DATABASE_POOL_MAX });
   return client;
 }
 

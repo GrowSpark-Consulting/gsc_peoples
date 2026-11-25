@@ -3,7 +3,8 @@
 import { usePathname } from 'next/navigation';
 import { useId, useRef, useState, useSyncExternalStore } from 'react';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
-import { NAV_SECTIONS, findNavItem, titleFor } from '@/config/navigation';
+import { visibleNavSections, findNavItem, titleFor } from '@/config/navigation';
+import { useSession } from '@/hooks/use-session';
 import { useShellMode } from '@/hooks/use-shell-mode';
 import {
   readSidebarCollapsed,
@@ -25,6 +26,10 @@ const PRODUCT = { name: 'Grow Spark People', initial: 'P' } as const;
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const mode = useShellMode();
+  const sessionState = useSession();
+  const navSections = visibleNavSections(
+    sessionState.status === 'ready' ? sessionState.session.permissions : undefined,
+  );
   const menuId = useId();
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
@@ -60,7 +65,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <div className="sticky top-0 hidden h-dvh shrink-0 lg:block">
         <Sidebar
           product={PRODUCT}
-          sections={NAV_SECTIONS}
+          sections={navSections}
           activeId={active?.id}
           collapsed={collapsed}
           onCollapsedChange={writeSidebarCollapsed}
@@ -71,7 +76,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <MobileNav id={menuId} open={menuOpen} onClose={() => setMenuOpen(false)}>
         <Sidebar
           product={PRODUCT}
-          sections={NAV_SECTIONS}
+          sections={navSections}
           activeId={active?.id}
           collapsed={false}
           showToggle={false}

@@ -1,5 +1,5 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- the tenant facade returns untyped rows (database/tenant/tenant-db.ts) */
 import { Router } from 'express';
-import { z } from 'zod';
 import {
   PERMISSIONS,
   createDepartmentSchema,
@@ -15,11 +15,12 @@ import {
 } from '@gsc/contracts';
 import { requireAnyPermission, requirePermission } from '../../middleware/authorization/authorize';
 import { validate } from '../../middleware/validation/validate';
-import { UnauthorizedError, ValidationError, NotFoundError } from '../../shared/errors';
+import { ValidationError, NotFoundError } from '../../shared/errors';
 import type { PrismaClient } from '../../database/generated/client';
-import { withTenant, type TenantRunner } from '../../database/tenant';
+import type { TenantRunner } from '../../database/tenant';
+import { recordAudit } from '../audit/audit';
 
-export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: TenantRunner): Router {
+export function createOrganizationRouter(_prisma: PrismaClient, tenantRunner: TenantRunner): Router {
   const router = Router();
   const run = tenantRunner;
   const ctx = (req: any) => ({ companyId: req.user.companyId as string });
@@ -32,8 +33,11 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
   });
   router.post('/departments', requirePermission(PERMISSIONS.ORGANIZATION_WRITE), validate({ body: createDepartmentSchema }), async (req, res) => {
     try {
-      const row = await run(ctx(req), async (db: any) => db.department.create({ data: { name: req.body.name, description: req.body.description ?? null }, select: { id: true, name: true, description: true, isActive: true, createdAt: true, updatedAt: true } }));
-      await prisma.auditLog.create({ data: { companyId: req.user!.companyId, actorId: req.user!.userId, action: 'department.created', entity: 'Department', entityId: row.id, newValue: { name: row.name } } });
+      const row = await run(ctx(req), async (db: any) => {
+        const created = await db.department.create({ data: { name: req.body.name, description: req.body.description ?? null }, select: { id: true, name: true, description: true, isActive: true, createdAt: true, updatedAt: true } });
+        await recordAudit(db, { actorId: req.user!.userId, action: 'department.created', entity: 'Department', entityId: created.id, newValue: { name: created.name } });
+        return created;
+      });
       res.status(201).json({ data: row });
     } catch (e: any) {
       if (e?.code === 'P2002') throw new ValidationError('Department name must be unique');
@@ -46,12 +50,11 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
       const row = await run(ctx(req), async (db: any) => {
         const existing = await db.department.findFirst({ where: { id } });
         if (!existing) throw new NotFoundError('Department not found');
-        if (req.body.isActive === false) {
-          // archive allowed even if active employees exist? PRD says "Do not delete departments that have active employees" but archive may be allowed; be safe and block if has active employees.
-          const activeCount = await db.employee.count({ where: { departmentId: id, status: { in: ['ONBOARDING','ACTIVE','ON_LEAVE','ON_NOTICE'] } } });
-          if (activeCount > 0) throw new ValidationError('Cannot archive a department with active employees');
-        }
-        return db.department.update({ where: { id }, data: { name: req.body.name, description: req.body.description, isActive: req.body.isActive }, select: { id: true, name: true, description: true, isActive: true, createdAt: true, updatedAt: true } });
+        // ORG-002: a department that is in use is archived, never deleted. Archiving stops new assignments;
+        // current members keep it.
+        const updated = await db.department.update({ where: { id }, data: { name: req.body.name, description: req.body.description, isActive: req.body.isActive }, select: { id: true, name: true, description: true, isActive: true, createdAt: true, updatedAt: true } });
+        await recordAudit(db, { actorId: req.user!.userId, action: 'department.updated', entity: 'Department', entityId: id, oldValue: { name: existing.name, description: existing.description, isActive: existing.isActive }, newValue: req.body });
+        return updated;
       });
       res.json({ data: row });
     } catch (e: any) {
@@ -64,8 +67,10 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
     await run(ctx(req), async (db: any) => {
       const count = await db.employee.count({ where: { departmentId: id } });
       if (count > 0) throw new ValidationError('Cannot delete a department that has employees; archive it instead');
-      const deleted = await db.department.deleteMany({ where: { id } });
-      if (deleted.count === 0) throw new NotFoundError('Department not found');
+      const existing = await db.department.findFirst({ where: { id } });
+      if (!existing) throw new NotFoundError('Department not found');
+      await db.department.deleteMany({ where: { id } });
+      await recordAudit(db, { actorId: req.user!.userId, action: 'department.deleted', entity: 'Department', entityId: id, oldValue: { name: existing.name } });
     });
     res.status(204).send();
   });
@@ -77,7 +82,11 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
   });
   router.post('/designations', requirePermission(PERMISSIONS.ORGANIZATION_WRITE), validate({ body: createDesignationSchema }), async (req, res) => {
     try {
-      const row = await run(ctx(req), async (db: any) => db.designation.create({ data: { name: req.body.name }, select: { id: true, name: true, isActive: true, createdAt: true, updatedAt: true } }));
+      const row = await run(ctx(req), async (db: any) => {
+        const created = await db.designation.create({ data: { name: req.body.name }, select: { id: true, name: true, isActive: true, createdAt: true, updatedAt: true } });
+        await recordAudit(db, { actorId: req.user!.userId, action: 'designation.created', entity: 'Designation', entityId: created.id, newValue: { name: created.name } });
+        return created;
+      });
       res.status(201).json({ data: row });
     } catch (e: any) {
       if (e?.code === 'P2002') throw new ValidationError('Designation name must be unique');
@@ -90,10 +99,9 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
       const row = await run(ctx(req), async (db: any) => {
         const existing = await db.designation.findFirst({ where: { id } });
         if (!existing) throw new NotFoundError('Designation not found');
-        if (req.body.isActive === false) {
-          // "Do not delete designations that are in use" - archive allowed? safe to allow archive.
-        }
-        return db.designation.update({ where: { id }, data: { name: req.body.name, isActive: req.body.isActive }, select: { id: true, name: true, isActive: true, createdAt: true, updatedAt: true } });
+        const updated = await db.designation.update({ where: { id }, data: { name: req.body.name, isActive: req.body.isActive }, select: { id: true, name: true, isActive: true, createdAt: true, updatedAt: true } });
+        await recordAudit(db, { actorId: req.user!.userId, action: 'designation.updated', entity: 'Designation', entityId: id, oldValue: { name: existing.name, isActive: existing.isActive }, newValue: req.body });
+        return updated;
       });
       res.json({ data: row });
     } catch (e: any) {
@@ -106,8 +114,10 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
     await run(ctx(req), async (db: any) => {
       const count = await db.employee.count({ where: { designationId: id } });
       if (count > 0) throw new ValidationError('Cannot delete a designation that is in use; archive it instead');
-      const deleted = await db.designation.deleteMany({ where: { id } });
-      if (deleted.count === 0) throw new NotFoundError('Designation not found');
+      const existing = await db.designation.findFirst({ where: { id } });
+      if (!existing) throw new NotFoundError('Designation not found');
+      await db.designation.deleteMany({ where: { id } });
+      await recordAudit(db, { actorId: req.user!.userId, action: 'designation.deleted', entity: 'Designation', entityId: id, oldValue: { name: existing.name } });
     });
     res.status(204).send();
   });
@@ -131,7 +141,11 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
   });
   router.post('/holidays', requirePermission(PERMISSIONS.HOLIDAY_WRITE), validate({ body: createOrgHolidaySchema }), async (req, res) => {
     try {
-      const row = await run(ctx(req), async (db: any) => db.holiday.create({ data: { date: new Date(`${req.body.date}T00:00:00.000Z`), name: req.body.name }, select: { id: true, date: true, name: true, isActive: true, createdAt: true, updatedAt: true } }));
+      const row = await run(ctx(req), async (db: any) => {
+        const created = await db.holiday.create({ data: { date: new Date(`${req.body.date}T00:00:00.000Z`), name: req.body.name }, select: { id: true, date: true, name: true, isActive: true, createdAt: true, updatedAt: true } });
+        await recordAudit(db, { actorId: req.user!.userId, action: 'CREATED', entity: 'holiday', entityId: created.id, newValue: { date: req.body.date, name: created.name } });
+        return created;
+      });
       res.status(201).json({ data: { ...row, date: row.date.toISOString().slice(0,10) } });
     } catch (e: any) {
       if (e?.code === 'P2002') throw new ValidationError('A holiday already exists for this date');
@@ -144,7 +158,9 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
       const row = await run(ctx(req), async (db: any) => {
         const existing = await db.holiday.findFirst({ where: { id } });
         if (!existing) throw new NotFoundError('Holiday not found');
-        return db.holiday.update({ where: { id }, data: { date: req.body.date ? new Date(`${req.body.date}T00:00:00.000Z`) : undefined, name: req.body.name, isActive: req.body.isActive }, select: { id: true, date: true, name: true, isActive: true, createdAt: true, updatedAt: true } });
+        const updated = await db.holiday.update({ where: { id }, data: { date: req.body.date ? new Date(`${req.body.date}T00:00:00.000Z`) : undefined, name: req.body.name, isActive: req.body.isActive }, select: { id: true, date: true, name: true, isActive: true, createdAt: true, updatedAt: true } });
+        await recordAudit(db, { actorId: req.user!.userId, action: 'UPDATED', entity: 'holiday', entityId: id, oldValue: { date: existing.date, name: existing.name, isActive: existing.isActive }, newValue: req.body });
+        return updated;
       });
       res.json({ data: { ...row, date: row.date.toISOString().slice(0,10) } });
     } catch (e: any) {
@@ -155,8 +171,10 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
   router.delete('/holidays/:id', requirePermission(PERMISSIONS.HOLIDAY_WRITE), validate({ params: orgHolidayIdParamSchema }), async (req, res) => {
     const { id } = req.params as { id: string };
     await run(ctx(req), async (db: any) => {
-      const deleted = await db.holiday.deleteMany({ where: { id } });
-      if (deleted.count === 0) throw new NotFoundError('Holiday not found');
+      const existing = await db.holiday.findFirst({ where: { id } });
+      if (!existing) throw new NotFoundError('Holiday not found');
+      await db.holiday.deleteMany({ where: { id } });
+      await recordAudit(db, { actorId: req.user!.userId, action: 'DELETED', entity: 'holiday', entityId: id, oldValue: { date: existing.date, name: existing.name } });
     });
     res.status(204).send();
   });
@@ -164,7 +182,7 @@ export function createOrganizationRouter(prisma: PrismaClient, tenantRunner: Ten
   // Org hierarchy (basic: active employees with manager relations)
   router.get('/hierarchy', canReadOrg, async (req, res) => {
     const rows = await run(ctx(req), async (db: any) => db.employee.findMany({
-      where: { status: { not: 'TERMINATED' } },
+      where: { status: { notIn: ['INACTIVE', 'TERMINATED'] } }, // EMP-006
       select: { id: true, employeeNumber: true, firstName: true, lastName: true, jobTitle: true, managerId: true, department: { select: { id: true, name: true } } },
       orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
     })) as Array<any>;

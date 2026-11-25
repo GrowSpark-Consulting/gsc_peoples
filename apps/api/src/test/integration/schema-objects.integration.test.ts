@@ -179,7 +179,7 @@ describe('pg_constraint / pg_indexes: keys and indexes', () => {
     });
   });
 
-  it('has exactly the reviewed secondary indexes (20) and no extras', async () => {
+  it('has exactly the reviewed secondary indexes (21) and no extras', async () => {
     const rows = await q<{ indexname: string }>(
       `SELECT indexname FROM pg_indexes WHERE schemaname = 'hr' AND tablename = ANY($1) AND indexname NOT LIKE '%\\_pkey' ESCAPE '\\' ORDER BY indexname`,
       [MINE],
@@ -190,6 +190,7 @@ describe('pg_constraint / pg_indexes: keys and indexes', () => {
       'company_memberships_companyId_userId_key',
       'company_memberships_userId_idx',
       'departments_companyId_id_key',
+      'departments_companyId_lower_name_key',
       'departments_companyId_name_key',
       'employees_companyId_departmentId_idx',
       'employees_companyId_designationId_idx',

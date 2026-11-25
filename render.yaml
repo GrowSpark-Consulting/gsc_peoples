@@ -1,20 +1,23 @@
-# Render Blueprint for the GSC Peoples API. Frontend: Vercel (no root config needed, see docs/deployment/vercel-frontend-setup.md).
+# Render Blueprint for the GSC Peoples API. Frontend: Vercel (no root config needed).
+# Guides: docs/development/render-deployment-guide.md and docs/development/production-environment-variables.md.
 #
 # This file only DESCRIBES the service. Nothing is created until someone connects the repository in the Render dashboard
 # (New -> Blueprint) and approves it. Variables marked `sync: false` have NO value here: Render asks for them in the
 # dashboard, so no secret or account-specific value is ever stored in git.
 #
+# Repository: https://github.com/GrowSpark-Consulting/gsc_peoples
 # Verified against the repository (not guessed):
 #   - pnpm workspace at the repo root; the API bundles @gsc/* workspace packages with tsup and starts with `node dist/server.js`.
 #   - `--prod=false`: Render sets NODE_ENV=production during the build and pnpm would otherwise skip tsup/prisma/tsx.
 #   - `db:generate` runs `prisma generate` (client directory is git-ignored) and needs no database connection.
-#   - Migrations are NEVER run by Render: no preDeployCommand. See docs/deployment/supabase-production-migration.md.
+#   - Migrations are NEVER run by Render: no preDeployCommand. See docs/development/production-migration-and-bootstrap.md.
 # Key names follow Render's Blueprint spec; confirm them on the first Blueprint sync (the dashboard reports unknown keys).
 
 services:
   - type: web
     name: gsc-peoples-api
     runtime: node
+    repo: https://github.com/GrowSpark-Consulting/gsc_peoples
     region: singapore # closest Render region to Supabase ap-south-1; Render has no India region
     plan: starter # paid: no spin-down. Keep ONE instance (in-memory rate limiter, see docs)
     branch: main
@@ -41,7 +44,24 @@ services:
         value: supabase
       - key: SUPABASE_STORAGE_BUCKET
         value: hr-documents
+      # Email is used only for invitations and password resets. `disabled` boots without email (invitations answer 503).
+      - key: MAIL_DRIVER
+        value: smtp
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_SECURE
+        value: "false" # false = STARTTLS (mandatory in production); true for an implicit-TLS port such as 465
       # --- entered in the dashboard (no value in git) ---
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_USER #                                                           [SECRET]
+        sync: false
+      - key: SMTP_PASSWORD #                                                       [SECRET]
+        sync: false
+      - key: MAIL_FROM # e.g. GSC Peoples <no-reply@example.com> on a verified domain
+        sync: false
+      - key: WEB_APP_URL # https origin of the web app, used for the links inside emails
+        sync: false
       - key: SUPABASE_DATABASE_URL # hr_app via the Session Pooler, ...?schema=hr   [SECRET]
         sync: false
       - key: SUPABASE_STORAGE_URL # https://<project-ref>.supabase.co
@@ -54,3 +74,6 @@ services:
         sync: false
     # Must NOT be set on this service: DATABASE_URL, DIRECT_URL, SUPABASE_DIRECT_URL (migration credential),
     # TEST_*, DEV_AUTH_*, REDIS_URL, any NEXT_PUBLIC_* value.
+    #
+    # The document retention job (PRD DOC-005) is deliberately NOT declared here: a cron service is billed and deletes
+    # files, so it is created by hand after approval. See "Retention cron job" in the Render guide.

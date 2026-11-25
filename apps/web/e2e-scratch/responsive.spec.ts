@@ -4,7 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { resetDb, signIn, sql, userId } from './support';
 
 /**
- * Responsive verification at 375, 768, 1024 and 1440 px for the pages built in the frontend sprint.
+ * Responsive verification at 360, 375, 768, 1024 and 1440 px for every application page.
  * Automated checks per page and width (a screenshot of every combination is saved to test-results/responsive/):
  *   1. no horizontal scroll of the page itself (document width <= viewport width);
  *   2. no visible element sticks out past the right edge unless it sits inside a container that scrolls
@@ -14,11 +14,20 @@ import { resetDb, signIn, sql, userId } from './support';
  * These checks find layout defects; they do not judge visual quality, which still needs a human look at the screenshots.
  */
 
-const WIDTHS = [375, 768, 1024, 1440] as const;
+// 360 px is the PRD's stated minimum; the other four are the release checklist widths.
+const WIDTHS = [360, 375, 768, 1024, 1440] as const;
 const HEIGHT = 900;
 const OUT = path.resolve(__dirname, '../test-results/responsive');
 
-const PAGES: { name: string; path: string; as: 'hr' | 'team'; ready: RegExp | string }[] = [
+const PAGES: { name: string; path: string; as: 'sa' | 'hr' | 'mgr' | 'team'; ready: RegExp | string }[] = [
+  { name: 'settings-sa', path: '/settings', as: 'sa', ready: 'Audit log' },
+  { name: 'dashboard-manager', path: '/dashboard', as: 'mgr', ready: 'Team members' },
+  { name: 'leave-manager', path: '/leave', as: 'mgr', ready: 'Leave calendar' },
+  { name: 'employees-hr', path: '/employees', as: 'hr', ready: 'All employees' },
+  { name: 'employee-new', path: '/employees/new', as: 'hr', ready: 'Designation' },
+  { name: 'reports', path: '/reports', as: 'hr', ready: 'Attendance report' },
+  { name: 'employees-directory', path: '/employees', as: 'team', ready: 'Company directory' },
+  { name: 'profile', path: '/profile', as: 'team', ready: 'My contact details' },
   { name: 'dashboard-hr', path: '/dashboard', as: 'hr', ready: 'Total employees' },
   { name: 'dashboard-employee', path: '/dashboard', as: 'team', ready: 'Leave balances' },
   { name: 'attendance-hr', path: '/attendance', as: 'hr', ready: 'Attendance by date' },
@@ -61,7 +70,7 @@ test.beforeAll(() => {
   fs.mkdirSync(OUT, { recursive: true });
 });
 
-for (const who of ['hr', 'team'] as const) {
+for (const who of ['sa', 'hr', 'mgr', 'team'] as const) {
   test.describe(`responsive as ${who}`, () => {
     for (const width of WIDTHS) {
       test(`${width}px`, async ({ page }) => {

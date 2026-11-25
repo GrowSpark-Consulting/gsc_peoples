@@ -2,8 +2,10 @@ import { Router } from 'express';
 import {
   PERMISSIONS,
   changeEmployeeStatusSchema,
-  createEmployeeSchema,
+  createEmployeeRequestSchema,
+  directoryQuerySchema,
   employeeIdParamSchema,
+  employeeInviteSchema,
   employeeListQuerySchema,
   employeeSelfUpdateSchema,
   updateEmployeeSchema,
@@ -30,6 +32,7 @@ export function createEmployeesRouter(service: EmployeeService): Router {
 
   router.get('/', canRead, validate({ query: employeeListQuerySchema }), c.list);
   router.get('/me', canRead, c.getMe);
+  router.get('/directory', requirePermission(PERMISSIONS.DIRECTORY_READ), validate({ query: directoryQuerySchema }), c.directory);
   router.patch(
     '/me',
     requirePermission(PERMISSIONS.EMPLOYEE_SELF_EDIT),
@@ -40,7 +43,7 @@ export function createEmployeesRouter(service: EmployeeService): Router {
   router.post(
     '/',
     requirePermission(PERMISSIONS.EMPLOYEE_WRITE),
-    validate({ body: createEmployeeSchema }),
+    validate({ body: createEmployeeRequestSchema }),
     c.create,
   );
 
@@ -48,7 +51,12 @@ export function createEmployeesRouter(service: EmployeeService): Router {
   router.post(
     '/:id/invite',
     requireAnyPermission(PERMISSIONS.EMPLOYEE_INVITE, PERMISSIONS.USER_ACCOUNT_MANAGE),
-    validate({ params: employeeIdParamSchema }),
+    // The body is optional; without one the account is invited as an Employee.
+    (req, _res, next) => {
+      req.body ??= {};
+      next();
+    },
+    validate({ params: employeeIdParamSchema, body: employeeInviteSchema }),
     c.invite,
   );
 

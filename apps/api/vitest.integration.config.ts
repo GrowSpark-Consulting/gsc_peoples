@@ -10,6 +10,8 @@ export default defineConfig({
     fileParallelism: false,
     testTimeout: 30_000,
     hookTimeout: 30_000,
-    env: { NODE_ENV: 'test', AUTH_MODE: 'development', LOG_LEVEL: 'silent' },
+    // Tests inject their own scratch-database clients and mailer. DATABASE_URL stays whatever the harness derives
+    // from; DB_TARGET is pinned so a hosted target can never be selected from the environment.
+    env: { NODE_ENV: 'test', AUTH_MODE: 'development', LOG_LEVEL: 'silent', DB_TARGET: 'local', MAIL_DRIVER: 'disabled', DOCUMENT_STORAGE_DRIVER: 'local' },
   },
 });

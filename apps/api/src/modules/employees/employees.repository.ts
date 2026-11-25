@@ -1,7 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- the tenant facade returns untyped rows (database/tenant/tenant-db.ts) */
 import crypto from 'node:crypto';
 import type {
   ChangeEmployeeStatus,
   CreateEmployee,
+  DirectoryQuery,
   EmployeeListQuery,
   EmployeeSelfUpdate,
   UpdateEmployee,
@@ -9,11 +11,14 @@ import type {
 import type { Prisma } from '../../database/generated/client';
 import type { TenantDb } from '../../database/tenant';
 import type { TenantContext } from '../../database/tenant/types';
-import { ConflictError, NotFoundError, ValidationError } from '../../shared/errors';
-import { secureToken, tokenHash } from '../auth/password';
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '../../shared/errors';
+import { recordAudit } from '../audit/audit';
+import { companyDay } from '../attendance/attendance.rules';
 import { resolveTeamEmployeeIds } from '../authorization/team-scope';
+import { hrUserIds, notify } from '../notifications/notify';
 import type {
   Actor,
+  DirectoryRow,
   EmployeePage,
   EmployeeRepository,
   EmployeeRow,
@@ -134,6 +139,9 @@ async function writeAudit(
     changes: changes as Prisma.InputJsonObject,
   } as any;
   await (db as any).employeeAuditLog.create({ data });
+  // The company-wide audit log (SET-004) records every state change too, in the same transaction.
+  const pick = (side: 'from' | 'to') => Object.fromEntries(Object.entries(changes).map(([k, v]) => [k, v[side]]));
+  await recordAudit(db, { actorId: actor.userId, action: `employee.${action.toLowerCase()}`, entity: 'Employee', entityId: employeeId, oldValue: pick('from'), newValue: pick('to') });
 }
 
 async function requireDepartment(db: TenantDb, id: string): Promise<void> {
@@ -192,21 +200,47 @@ function assertDateOrder(joiningOrHire: Date | null, exitOrTermination: Date | n
 async function nextEmployeeNumber(ctx: TenantContext, tx: Prisma.TransactionClient): Promise<string> {
   // Atomic per-company sequence using raw SQL in same tenant-scoped transaction.
   const rows = await tx.$queryRaw<Array<{ nextValue: number }>>`
-    INSERT INTO "employee_number_sequences" ("id", "companyId", "nextValue", "updatedAt")
+    INSERT INTO "hr"."employee_number_sequences" AS seq ("id", "companyId", "nextValue", "updatedAt")
     VALUES (${crypto.randomUUID()}, ${ctx.companyId}, 2, NOW())
     ON CONFLICT ("companyId")
-    DO UPDATE SET "nextValue" = "employee_number_sequences"."nextValue" + 1, "updatedAt" = NOW()
+    DO UPDATE SET "nextValue" = seq."nextValue" + 1, "updatedAt" = NOW()
     RETURNING "nextValue" - 1 AS "nextValue"
   `;
   const n = rows[0]?.nextValue ?? 1;
   return `EMP-${String(n).padStart(4, '0')}`;
 }
 
-async function ensureNoPendingAttendanceCorrection(db: TenantDb, employeeId: string): Promise<void> {
-  const pending = (await (db as any).attendanceCorrection?.findFirst?.({ where: { employeeId, status: 'PENDING' }, select: { id: true } })) ?? null;
-  if (pending) {
-    throw new ValidationError('Pending attendance correction requests must be resolved before deactivation');
+const isTerminal = (status: string) => status === 'TERMINATED' || status === 'INACTIVE';
+
+/**
+ * PRD W10 / EMP-007, run in the same transaction as the status change: the login stops working, pending leave and
+ * corrections are cancelled, approved leave that has not happened is cancelled and its days restored. Records stay.
+ */
+async function offboard(db: TenantDb, actor: Actor, employeeId: string, membership: { id: string; userId: string; status: string } | null, effective: Date) {
+  const now = new Date();
+  if (membership) {
+    if (membership.status === 'ACTIVE') await db.companyMembership.update({ where: { id: membership.id }, data: { status: 'SUSPENDED' } });
+    await db.userSession.updateMany({ where: { userId: membership.userId, revokedAt: null }, data: { revokedAt: now } });
+    await db.invitationToken.updateMany({ where: { membershipId: membership.id, usedAt: null, revokedAt: null }, data: { revokedAt: now } });
   }
+  const corrections = await db.attendanceCorrection.updateMany({
+    where: { employeeId, status: 'PENDING' },
+    data: { status: 'REJECTED', reviewerId: actor.userId, reviewerComment: 'Cancelled automatically: the employee was offboarded.', reviewedAt: now },
+  });
+  type Leave = { id: string; leaveTypeId: string; startDate: Date; days: number; status: string };
+  const leaves: Leave[] = await db.leaveRequest.findMany({
+    where: { employeeId, OR: [{ status: 'PENDING' }, { status: 'APPROVED', startDate: { gt: effective } }] },
+    select: { id: true, leaveTypeId: true, startDate: true, days: true, status: true },
+  });
+  for (const leave of leaves) {
+    await db.leaveRequest.update({ where: { id: leave.id }, data: { status: 'CANCELLED', cancelledAt: now, cancelledByUserId: actor.userId } });
+    await db.leaveBalance.updateMany({
+      where: { employeeId, leaveTypeId: leave.leaveTypeId, year: leave.startDate.getUTCFullYear() },
+      data: leave.status === 'PENDING' ? { pendingReserved: { decrement: leave.days } } : { used: { decrement: leave.days } },
+    });
+    await recordAudit(db, { actorId: actor.userId, action: 'leave.cancelled', entity: 'LeaveRequest', entityId: leave.id, oldValue: { status: leave.status }, newValue: { status: 'CANCELLED', reason: 'employee offboarded' } });
+  }
+  return { cancelledLeaveRequests: leaves.length, cancelledCorrections: (corrections?.count as number | undefined) ?? 0 };
 }
 
 // ---------- repository ----------
@@ -301,13 +335,14 @@ export function createEmployeeRepository(run: TenantRunner): EmployeeRepository 
             workEmail: { from: null, to: row.workEmail },
             status: { from: null, to: row.status },
           });
-          // Auto-create onboarding tasks from active templates (best effort, same tx)
-          const templates = (await (db as any).onboardingTemplateTask?.findMany?.({ where: { isActive: true }, select: { title: true, dueOffsetDays: true, assigneeType: true } })) ?? [];
-          if (templates?.length) {
-            for (const t of templates) {
-              const dueDate = t.dueOffsetDays != null && joiningDate ? new Date(joiningDate.getTime() + t.dueOffsetDays * 86400000) : null;
-              await (db as any).onboardingTask.create({ data: { employeeId: row.id, title: t.title, dueDate, assigneeType: t.assigneeType } });
-            }
+          // ONB-001: the checklist is a COPY of the active template; later template edits never touch it.
+          const templates = await (db as any).onboardingTemplateTask.findMany({ where: { isActive: true }, select: { title: true, dueOffsetDays: true, assigneeType: true } });
+          for (const t of templates) {
+            const dueDate = t.dueOffsetDays != null && joiningDate ? new Date(joiningDate.getTime() + t.dueOffsetDays * 86400000) : null;
+            await (db as any).onboardingTask.create({ data: { employeeId: row.id, title: t.title, dueDate, assigneeType: t.assigneeType } });
+          }
+          if (templates.some((t: { assigneeType: string }) => t.assigneeType === 'HR')) {
+            await notify(db, { type: 'ONBOARDING_TASK_ASSIGNED', eventKey: row.id, recipients: await hrUserIds(db), actorUserId: actor.userId, title: `Onboarding tasks for ${row.firstName} ${row.lastName}`, link: '/onboarding' });
           }
           return row;
         });
@@ -319,6 +354,21 @@ export function createEmployeeRepository(run: TenantRunner): EmployeeRepository 
         return await run(ctx, async (db) => {
           const current = (await (db as any).employee.findFirst({ where: { id }, select: SELECT })) as EmployeeRow | null;
           if (!current) throw new NotFoundError('Employee not found');
+          // PRD W9: a concurrent edit is caught by updated_at; the editor reloads.
+          if (patch.expectedUpdatedAt !== undefined && patch.expectedUpdatedAt !== current.updatedAt.toISOString()) {
+            throw new ConflictError('This record was changed by someone else. Reload it and apply your changes again.', { code: 'STALE_RECORD' });
+          }
+          // PRD W9: only a Super Admin changes the employee ID or an existing joining date.
+          if (!actor.isSuperAdmin) {
+            if (patch.employeeNumber !== undefined && patch.employeeNumber !== current.employeeNumber) {
+              throw new ForbiddenError('Only a Super Admin can change the employee ID');
+            }
+            const joined = isoDay(current.joiningDate ?? current.hireDate);
+            const requested = patch.joiningDate !== undefined ? patch.joiningDate : patch.hireDate;
+            if (joined && requested !== undefined && requested !== joined) {
+              throw new ForbiddenError('Only a Super Admin can change the joining date');
+            }
+          }
 
           if (patch.employeeNumber && patch.employeeNumber !== current.employeeNumber) await assertUnique(db, 'employeeNumber', patch.employeeNumber, id);
           if (patch.workEmail !== undefined) {
@@ -387,11 +437,23 @@ export function createEmployeeRepository(run: TenantRunner): EmployeeRepository 
     async selfUpdate(ctx, actor, id, patch: EmployeeSelfUpdate) {
       try {
         return await run(ctx, async (db) => {
-          const current = await (db as any).employee.findFirst({ where: { id }, select: SELECT });
+          const current = (await (db as any).employee.findFirst({ where: { id }, select: SELECT })) as EmployeeRow | null;
           if (!current) throw new NotFoundError('Employee not found');
-          const row = await (db as any).employee.update({ where: { id }, data: { phone: patch.phone ?? null, address: patch.address ?? null, emergencyContact: patch.emergencyContact ?? null }, select: SELECT });
-          await writeAudit(db, actor, id, 'UPDATED', { selfProfile: { from: null, to: 'updated' } });
-          return row as EmployeeRow;
+          // EMP-009: only the fields actually sent change; each change is logged with old and new values.
+          const data: Record<string, string | null> = {};
+          const diff: Record<string, Change> = {};
+          for (const field of ['phone', 'address', 'emergencyContact'] as const) {
+            const next = patch[field];
+            if (next === undefined) continue;
+            const to = next === '' ? null : next;
+            if ((current[field] ?? null) === (to ?? null)) continue;
+            data[field] = to ?? null;
+            diff[field] = { from: current[field] ?? null, to: to ?? null };
+          }
+          if (Object.keys(diff).length === 0) return current;
+          const row = (await (db as any).employee.update({ where: { id }, data, select: SELECT })) as EmployeeRow;
+          await writeAudit(db, actor, id, 'UPDATED', diff);
+          return row;
         });
       } catch (e) { rethrow(e); }
     },
@@ -399,38 +461,67 @@ export function createEmployeeRepository(run: TenantRunner): EmployeeRepository 
     async changeStatus(ctx, actor, id, change: ChangeEmployeeStatus) {
       try {
         return await run(ctx, async (db) => {
-          const current = await (db as any).employee.findFirst({ where: { id }, select: SELECT });
+          const current = (await (db as any).employee.findFirst({ where: { id }, select: SELECT })) as EmployeeRow | null;
           if (!current) throw new NotFoundError('Employee not found');
-          if (change.status === 'TERMINATED' || change.status === 'INACTIVE') {
-            await ensureNoPendingAttendanceCorrection(db, id);
-            // Block deactivation of linked Super Admin's own account context? best-effort: membership role check
-            const membership = (await (db as any).companyMembership?.findFirst?.({ where: { employeeId: id }, select: { role: { select: { key: true } }, userId: true, id: true } })) ?? null;
-            if (membership?.role?.key === 'SUPER_ADMIN') {
-              const count = (await (db as any).companyMembership?.count?.({ where: { role: { is: { key: 'SUPER_ADMIN' } }, status: 'ACTIVE' } })) ?? 2;
-              if ((count ?? 0) <= 1) throw new ValidationError('Cannot deactivate the last Super Admin');
+          const terminal = isTerminal(change.status);
+          const requested = 'exitDate' in change && change.exitDate ? change.exitDate : 'terminationDate' in change ? change.terminationDate : undefined;
+          if (requested) assertDateOrder(current.joiningDate ?? current.hireDate ?? null, toDate(requested) ?? null);
+          const currentExit = isoDay(current.exitDate ?? current.terminationDate ?? null);
+          // Terminal statuses record the exit date; On Notice may plan one; any other status clears it.
+          const newExit = terminal || change.status === 'ON_NOTICE' ? (requested ?? (change.status === 'ON_NOTICE' ? currentExit : null)) : null;
+          if (change.status === current.status && newExit === currentExit) return current; // no-op: no write, no audit
+
+          if (change.status === 'ACTIVE' && current.status !== 'ACTIVE') {
+            // PRD W3: Active needs a joining date and a manager, or an explicit "no manager".
+            if (!(current.joiningDate ?? current.hireDate)) {
+              throw new ValidationError('Set a joining date before making the employee Active', [{ path: ['joiningDate'], message: 'Required to become Active' }]);
             }
-            // disable linked login
-            if (membership?.userId) {
-              await (db as any).userSession?.updateMany?.({ where: { userId: membership.userId, revokedAt: null }, data: { revokedAt: new Date() } });
-              // also revoke memberships for this employee's user? keep membership but sessions revoked; app rejects disabled users.
+            if (!current.manager && change.noManager !== true) {
+              throw new ValidationError('Assign a manager, or confirm that this employee has no manager', [{ path: ['managerId'], message: 'Required to become Active' }]);
             }
           }
-          const exitDate = (change as any).exitDate ?? (change as any).terminationDate;
-          if (exitDate) assertDateOrder(current.joiningDate ?? current.hireDate ?? null, toDate(exitDate) ?? null);
-          const terminal = change.status === 'TERMINATED' || change.status === 'INACTIVE';
-          const currentExit = isoDay(current.exitDate ?? current.terminationDate ?? null);
-          const newExit = terminal ? isoDay(toDate(exitDate) ?? null) : null; // reactivation clears the exit date
-          if (change.status === current.status && newExit === currentExit) return current as EmployeeRow; // no-op: no write, no audit
 
-          const data: any = { status: change.status, exitDate: toDate(newExit) ?? null, terminationDate: toDate(newExit) ?? null };
-          const row = await (db as any).employee.update({ where: { id }, data, select: SELECT });
+          const membership = (await (db as any).companyMembership.findFirst({
+            where: { employeeId: id },
+            select: { id: true, userId: true, status: true, role: { select: { key: true } } },
+          })) as { id: string; userId: string; status: string; role?: { key: string } } | null;
+          if (terminal && membership?.role?.key === 'SUPER_ADMIN') {
+            // AUTH-006: HR cannot touch a Super Admin. W10: the last Super Admin cannot be offboarded.
+            if (!actor.isSuperAdmin) throw new ForbiddenError('Only a Super Admin can deactivate a Super Admin');
+            if (membership.status === 'ACTIVE') {
+              const count = await (db as any).companyMembership.count({ where: { role: { is: { key: 'SUPER_ADMIN' } }, status: 'ACTIVE' } });
+              if (count <= 1) throw new ValidationError('Cannot deactivate the last Super Admin');
+            }
+          }
+
+          const data: any = { status: change.status, exitDate: toDate(newExit) ?? null, terminationDate: terminal ? (toDate(newExit) ?? null) : null };
+          const row = (await (db as any).employee.update({ where: { id }, data, select: SELECT })) as EmployeeRow;
           const changes: Record<string, Change> = { status: { from: current.status, to: row.status } };
           if (newExit !== currentExit) {
-            changes[change.status === 'INACTIVE' ? 'exitDate' : 'terminationDate'] = { from: currentExit, to: newExit };
+            changes[change.status === 'TERMINATED' ? 'terminationDate' : 'exitDate'] = { from: currentExit, to: newExit };
+          }
+
+          if (terminal && !isTerminal(current.status)) {
+            const company = await (db as any).company.findFirst({ select: { timezone: true } });
+            const today = companyDay(new Date(), company?.timezone);
+            const exit = toDate(newExit) ?? today;
+            const done = await offboard(db, actor, id, membership, exit < today ? exit : today);
+            if (done.cancelledLeaveRequests > 0) changes.cancelledLeaveRequests = { from: null, to: done.cancelledLeaveRequests };
+            if (done.cancelledCorrections > 0) changes.cancelledCorrections = { from: null, to: done.cancelledCorrections };
+            // EMP-007: direct reports are flagged so HR reassigns them.
+            const reports = await (db as any).employee.count({ where: { managerId: id, status: { notIn: ['INACTIVE', 'TERMINATED'] } } });
+            if (reports > 0) {
+              changes.directReportsToReassign = { from: null, to: reports };
+              await notify(db, { type: 'REPORTS_NEED_MANAGER', eventKey: `${id}:${newExit}`, recipients: await hrUserIds(db), title: `${reports} direct report(s) of ${row.firstName} ${row.lastName} need a new manager`, link: `/employees?managerId=${id}` });
+            }
+          }
+          if (change.status === 'ACTIVE' && current.status === 'ONBOARDING') {
+            // W3: unfinished tasks do not block activation, and the override is logged.
+            const open = await (db as any).onboardingTask.count({ where: { employeeId: id, completed: false } });
+            if (open > 0) changes.openOnboardingTasksAtActivation = { from: null, to: open };
           }
           await writeAudit(db, actor, id, 'STATUS_CHANGED', changes);
-          // TODO: notify direct reports' managers/HR for reassignment when deactivated (handled in higher layer)
-          return row as EmployeeRow;
+          return row;
         });
       } catch (e) { rethrow(e); }
     },
@@ -460,40 +551,28 @@ export function createEmployeeRepository(run: TenantRunner): EmployeeRepository 
       });
     },
 
-    async sendInvitation(ctx, actor, id) {
-      // Minimal implementation: requires employee with work email and no existing active membership.
-      try {
-        return await run(ctx, async (db) => {
-          const emp = await (db as any).employee.findFirst({ where: { id }, select: { id: true, workEmail: true, firstName: true, lastName: true, membership: { select: { id: true, status: true } } } });
-          if (!emp) throw new NotFoundError('Employee not found');
-          if (!emp.workEmail) throw new ValidationError('Employee must have a work email before inviting');
-          if (emp.membership?.status === 'ACTIVE') throw new ValidationError('Employee already has an active login account');
-          // Ensure/find user and membership in INVITED state with EMPLOYEE role by default.
-          const email = emp.workEmail.toLowerCase();
-          const employeeRole = await (db as any).role.findFirst({ where: { key: 'EMPLOYEE' }, select: { id: true } });
-          if (!employeeRole) throw new ValidationError('Employee role not configured');
-          let user = await (db as any).user.findFirst({ where: { email }, select: { id: true, email: true } });
-          if (!user) {
-            // global user uniqueness by email exists in schema; create minimal identity
-            user = await (db as any).user.create({ data: { externalId: `local:${crypto.randomUUID()}`, email, name: `${emp.firstName} ${emp.lastName}`.trim() }, select: { id: true, email: true } }).catch(async () => (db as any).user.findFirst({ where: { email }, select: { id: true, email: true } }));
-          }
-          let membership = await (db as any).companyMembership.findFirst({ where: { userId: user.id }, select: { id: true, status: true, employeeId: true } });
-          if (!membership) {
-            membership = await (db as any).companyMembership.create({ data: { userId: user.id, roleId: employeeRole.id, employeeId: emp.id, status: 'INVITED' }, select: { id: true, status: true, employeeId: true } });
-          } else {
-            if (membership.status === 'ACTIVE') throw new ValidationError('User already has an active account in this company');
-            await (db as any).companyMembership.update({ where: { id: membership.id }, data: { employeeId: emp.id, status: 'INVITED' } });
-          }
-          // revoke old tokens and issue new invitation token
-          await (db as any).invitationToken?.updateMany?.({ where: { membershipId: membership.id, usedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
-          const token = secureToken(32);
-          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // PRD AUTH-004: link valid 7 days
-          await (db as any).invitationToken?.create?.({ data: { companyId: ctx.companyId, userId: user.id, membershipId: membership.id, tokenHash: tokenHash(token), expiresAt } });
-          await writeAudit(db, actor, id, emp.membership ? 'INVITATION_RESENT' : 'INVITATION_SENT', { workEmail: { from: null, to: email } });
-          // TODO: send invitation email via configured provider; token must not be exposed except delivery channel/logs in dev
-          return { status: emp.membership ? 'RESENT' : 'INVITED', expiresAt: expiresAt.toISOString() };
-        });
-      } catch (e) { rethrow(e); }
+    async directory(ctx, query: DirectoryQuery) {
+      // EMP-003: everyone may look colleagues up; only name, title, department and work email are selected.
+      const and: Obj[] = [{ status: { notIn: ['INACTIVE', 'TERMINATED'] } }];
+      for (const token of (query.q ?? '').split(/\s+/).filter(Boolean)) {
+        const c = { contains: escapeLike(token), mode: 'insensitive' } as const;
+        and.push({ OR: [{ firstName: c }, { lastName: c }, { employeeNumber: c }, { workEmail: c }] });
+      }
+      if (query.departmentId) and.push({ departmentId: query.departmentId });
+      return run(ctx, async (db) => {
+        const where = { AND: and };
+        const [rows, total] = await Promise.all([
+          db.employee.findMany({
+            where,
+            orderBy: [...ORDER],
+            skip: (query.page - 1) * query.pageSize,
+            take: query.pageSize,
+            select: { id: true, firstName: true, lastName: true, workEmail: true, jobTitle: true, department: { select: { name: true } }, designation: { select: { name: true } } },
+          }),
+          db.employee.count({ where }),
+        ]);
+        return { rows: rows as DirectoryRow[], total: total as number };
+      });
     },
   };
 }

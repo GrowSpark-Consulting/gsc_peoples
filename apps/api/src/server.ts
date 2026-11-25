@@ -20,7 +20,7 @@ server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
 
 let shuttingDown = false;
-async function shutdown(signal: string) {
+async function shutdown(signal: string, exitCode = 0) {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ signal }, 'Shutting down');
@@ -36,7 +36,7 @@ async function shutdown(signal: string) {
     await closed;
     await stopBackgroundJobs();
     await disconnectDatabase();
-    process.exit(0);
+    process.exit(exitCode);
   } catch (err) {
     logger.error({ err }, 'Error during shutdown');
     process.exit(1);
@@ -47,7 +47,7 @@ process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
 process.on('unhandledRejection', (err) => logger.error({ err }, 'Unhandled rejection'));
 process.on('uncaughtException', (err) => {
-  // State is unknown after an uncaught exception: log it and let the platform restart the process cleanly.
+  // State is unknown after an uncaught exception: log it, exit non-zero and let the platform restart the process.
   logger.fatal({ err }, 'Uncaught exception');
-  void shutdown('uncaughtException');
+  void shutdown('uncaughtException', 1);
 });

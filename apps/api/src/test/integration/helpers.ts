@@ -5,6 +5,12 @@ import { parseDatabaseUrl } from '../../database/connection-url';
 
 loadEnv({ path: path.resolve(import.meta.dirname, '../../../../../.env'), quiet: true });
 
+// Capture the initial configured URLs before tests reassign `process.env.DATABASE_URL` to `hr_itest` for `createApp()`.
+const INITIAL_FALLBACK_URLS: Record<UrlKey, string | undefined> = {
+  TEST_DATABASE_URL: process.env.DATABASE_URL,
+  TEST_DIRECT_URL: process.env.DIRECT_URL,
+};
+
 /**
  * The ONLY database integration tests may ever touch: a throwaway scratch database that exists only
  * for the test run. It is created by the global setup (hr_migrator has CREATEDB) and dropped by the
@@ -45,7 +51,7 @@ function baseUrl(key: UrlKey): string {
   const explicit = process.env[key];
   const [url, expectedDb, source] = explicit
     ? [explicit, 'hr_test', key]
-    : [process.env[key === 'TEST_DATABASE_URL' ? 'DATABASE_URL' : 'DIRECT_URL'], 'hr_db', key === 'TEST_DATABASE_URL' ? 'DATABASE_URL' : 'DIRECT_URL'];
+    : [INITIAL_FALLBACK_URLS[key], 'hr_db', key === 'TEST_DATABASE_URL' ? 'DATABASE_URL' : 'DIRECT_URL'];
   if (!url) throw new Error(`${key} (or ${source}) is not set. Run: pnpm db:test:setup`);
   const name = dbNameOf(url);
   if (name !== expectedDb)

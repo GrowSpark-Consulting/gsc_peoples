@@ -9,7 +9,9 @@ import { FilterSelect, ListToolbar } from '@/components/shared/list-toolbar';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { EMPTY_FILTERS, hasActiveFilters, type DirectoryFilters } from '../filters';
 import { STATUS_LABEL, TYPE_LABEL } from '../format';
+import { useAsyncData } from '../hooks/use-async-data';
 import { useDepartments } from '../hooks/use-employees';
+import { listDesignationOptions } from '../record-api';
 import { useEmployeesContext } from '../state/employees-context';
 import { ManagerPicker } from './manager-picker';
 
@@ -38,8 +40,11 @@ export function DirectoryFiltersBar({
   searchDebounceMs = 300,
   primary,
 }: DirectoryFiltersProps) {
-  const { caps } = useEmployeesContext();
+  const { caps, service } = useEmployeesContext();
   const departments = useDepartments();
+  // EMP-003: designation filter, on the real API (the development demo adapter has no designations).
+  const showDesignations = service.kind === 'http' && caps.canUseOrgFilters;
+  const designations = useAsyncData('designation-filter-options', listDesignationOptions, showDesignations);
 
   // Search text is local so typing feels instant; the committed filter follows after a pause.
   // The parent only RESETS it (clear filters / back to an unfiltered URL). Copying every parent
@@ -106,6 +111,16 @@ export function DirectoryFiltersBar({
                 containerClassName="min-w-[220px]"
               />
             </>
+          ) : null}
+          {showDesignations ? (
+            <FilterSelect
+              label="Designation"
+              allLabel="All designations"
+              value={value.designationId ?? ''}
+              options={(designations.data ?? []).map((d) => ({ value: d.id, label: d.name }))}
+              disabled={designations.status === 'loading' || designations.status === 'error'}
+              onChange={(designationId) => set({ designationId: designationId || undefined })}
+            />
           ) : null}
           {hasActiveFilters(value) ? (
             <Button

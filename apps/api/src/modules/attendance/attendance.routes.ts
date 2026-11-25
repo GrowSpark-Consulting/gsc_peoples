@@ -4,6 +4,7 @@ import {
   PERMISSIONS,
   attendanceHistoryQuerySchema,
   attendanceOverviewQuerySchema,
+  attendanceReportQuerySchema,
   createAttendanceCorrectionSchema,
   manualAttendanceCorrectionSchema,
   reviewAttendanceCorrectionSchema,
@@ -16,21 +17,39 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from '.
 import { resolveTeamEmployeeIds } from '../authorization/team-scope';
 import {
   CORRECTION_WINDOW_DAYS,
+  WORKING_STATUSES,
   checkCorrectionWindow,
   companyDay,
   companyMinutes,
   daysBetween,
   deriveOverviewStatus,
+  isWorkingStatus,
   isoWeekday,
   parseDateOnly,
   toDateOnly,
   type OverviewStatus,
 } from './attendance.rules';
+import { monthDays, summarize } from './month';
+import { toCsv } from '../shared/csv';
+import { recordAudit } from '../audit/audit';
+import { hrUserIds, notify, userIdForEmployee } from '../notifications/notify';
 
 const dateOnly = toDateOnly;
 const toDate = parseDateOnly;
 
 const isUniqueViolation = (e: unknown) => (e as { code?: string } | null)?.code === 'P2002';
+
+/**
+ * A time entered for a date must fall on that date in the company's time zone (PRD A7: no shifts, so nothing runs
+ * past midnight) and cannot be in the future.
+ */
+function assertTimesBelongToDate(date: Date, timeZone: string, now: Date, ...times: (Date | null)[]) {
+  for (const t of times) {
+    if (!t) continue;
+    if (t > now) throw new ValidationError('Attendance times cannot be in the future');
+    if (companyDay(t, timeZone).getTime() !== date.getTime()) throw new ValidationError('Check-in and check-out must be on the selected date', { code: 'TIME_OUTSIDE_DATE' });
+  }
+}
 
 /** Optional clock override so boundary tests do not depend on wall-clock time. */
 export interface AttendanceRouterOptions {
@@ -45,6 +64,14 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
   const ctx = (req: any) => ({ companyId: req.user.companyId as string });
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const has = (req: any, p: string) => (req.user.permissions as string[]).includes(p);
+
+  /** PRD W5: only a person who is expected at work records attendance. */
+  async function requireWorkingEmployee(db: TenantDb, employeeId: string) {
+    const me = await db.employee.findFirst({ where: { id: employeeId }, select: { status: true, firstName: true, lastName: true, managerId: true } });
+    if (!me) throw new NotFoundError('Employee profile not found');
+    if (!isWorkingStatus(me.status)) throw new ValidationError('Attendance is available once your employee record is Active', { code: 'EMPLOYEE_NOT_ACTIVE' });
+    return me as { status: string; firstName: string; lastName: string; managerId: string | null };
+  }
 
   /** Company calendar settings. "Today" everywhere in this router is the date in the company's time zone. */
   async function companyCalendar(db: TenantDb, now: Date) {
@@ -90,11 +117,11 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
     let row;
     try {
       row = await run(ctx(req), async (db) => {
-        const cal = await companyCalendar(db, now);
-        const today = cal.today;
-        if (!cal.workingDays.includes(isoWeekday(today))) throw new ValidationError('Today is not a working day');
-        const holiday = await db.holiday.findFirst({ where: { date: today, isActive: true } }).catch(() => null);
-        if (holiday) throw new ValidationError('Today is a holiday');
+        const { today } = await companyCalendar(db, now);
+        await requireWorkingEmployee(db, employeeId);
+        // PRD W5: weekend and holiday check-in is allowed (the day is reported as worked); full-day approved leave blocks it.
+        const onLeave = await db.leaveRequest.findFirst({ where: { employeeId, status: 'APPROVED', dayType: 'FULL_DAY', startDate: { lte: today }, endDate: { gte: today } }, select: { id: true } });
+        if (onLeave) throw new ValidationError('You are on approved leave today', { code: 'ON_APPROVED_LEAVE' });
         const existing = await db.attendanceRecord.findFirst({ where: { employeeId, date: today } });
         if (existing?.checkInAt) throw new ConflictError('Already checked in today');
         if (existing) return db.attendanceRecord.update({ where: { id: existing.id }, data: { checkInAt: now } });
@@ -119,7 +146,10 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
       if (existing.checkOutAt) throw new ValidationError('Already checked out today');
       if (now <= existing.checkInAt) throw new ValidationError('Check-out must be after check-in');
       const workedMinutes = Math.max(0, Math.round((now.getTime() - existing.checkInAt.getTime()) / 60000));
-      return db.attendanceRecord.update({ where: { id: existing.id }, data: { checkOutAt: now, workedMinutes } });
+      // Conditional write: of two simultaneous check-outs only one takes effect.
+      const done = await db.attendanceRecord.updateMany({ where: { id: existing.id, checkOutAt: null }, data: { checkOutAt: now, workedMinutes } });
+      if (done.count !== 1) throw new ConflictError('Already checked out today');
+      return db.attendanceRecord.findFirst({ where: { id: existing.id } });
     });
     res.json({ data: row });
   });
@@ -145,9 +175,72 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
         db.attendanceRecord.findMany({ where, orderBy: { date: 'desc' }, skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
         db.attendanceRecord.count({ where }),
       ]);
+      if (!q.month || !q.year || q.from || q.to) return { rows, total };
+      // ATT-003: the daily rows of the month, and totals counted from exactly those rows.
+      const employee = await db.employee.findFirst({ where: { id: targetEmployeeId }, select: { id: true, joiningDate: true, exitDate: true } });
+      if (!employee) return { rows, total };
+      const calendar = await companyCalendar(db, clock());
+      const days = (await monthDays(db, calendar, [employee], q.year, q.month)).get(employee.id) ?? [];
+      return { rows, total, days, summary: summarize(days) };
+    });
+    res.json({
+      data: data.rows.map((r: { workedMinutes: number | null }) => ({ ...r, workedHours: r.workedMinutes == null ? null : Math.round((r.workedMinutes / 60) * 100) / 100 })),
+      page: { page: q.page, pageSize: q.pageSize, total: data.total },
+      ...(data.summary ? { summary: data.summary, days: data.days } : {}),
+    });
+  });
+
+  // ATT-008 (P1) ---------------------------------------------------------------------------------------------
+  /** Monthly attendance report per employee for HR Admin and Super Admin, as JSON or CSV. */
+  router.get('/report', requirePermission(PERMISSIONS.ATTENDANCE_REPORT), validate({ query: attendanceReportQuerySchema }), async (req, res) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q = req.query as any;
+    const csv = q.format === 'csv';
+    const result = await run(ctx(req), async (db) => {
+      const calendar = await companyCalendar(db, clock());
+      const monthStart = new Date(Date.UTC(q.year, q.month - 1, 1));
+      const monthEnd = new Date(Date.UTC(q.year, q.month, 0));
+      // Everyone who was employed at some point in the month, whatever their status is today.
+      const where = {
+        AND: [
+          { status: { not: 'ONBOARDING' } },
+          { OR: [{ joiningDate: null }, { joiningDate: { lte: monthEnd } }] },
+          { OR: [{ exitDate: null }, { exitDate: { gte: monthStart } }] },
+          { OR: [{ status: { in: [...WORKING_STATUSES] } }, { exitDate: { not: null } }] },
+          ...(q.departmentId ? [{ departmentId: q.departmentId }] : []),
+        ],
+      };
+      const [employees, total] = await Promise.all([
+        db.employee.findMany({
+          where,
+          orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }, { id: 'asc' }],
+          ...(csv ? {} : { skip: (q.page - 1) * q.pageSize, take: q.pageSize }),
+          select: { id: true, employeeNumber: true, firstName: true, lastName: true, joiningDate: true, exitDate: true, department: { select: { name: true } } },
+        }),
+        db.employee.count({ where }),
+      ]);
+      const days = await monthDays(db, calendar, employees, q.year, q.month);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rows = (employees as any[]).map((e) => ({
+        employeeId: e.id as string,
+        employeeNumber: e.employeeNumber as string,
+        name: `${e.firstName} ${e.lastName}`.trim(),
+        departmentName: (e.department?.name as string | undefined) ?? null,
+        ...summarize(days.get(e.id) ?? []),
+      }));
       return { rows, total };
     });
-    res.json({ data: data.rows, page: { page: q.page, pageSize: q.pageSize, total: data.total } });
+    if (!csv) {
+      res.json({ data: result.rows, page: { page: q.page, pageSize: q.pageSize, total: result.total }, meta: { year: q.year, month: q.month } });
+      return;
+    }
+    const body = toCsv(
+      ['Employee ID', 'Name', 'Department', 'Present', 'Absent', 'On leave', 'Holidays', 'Missing check-out', 'Hours'],
+      result.rows.map((r) => [r.employeeNumber, r.name, r.departmentName ?? '', r.present, r.absent, r.onLeave, r.holidays, r.missingCheckout, r.hoursWorked]),
+    );
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="attendance-${q.year}-${String(q.month).padStart(2, '0')}.csv"`);
+    res.send(body);
   });
 
   // ATT-004 -------------------------------------------------------------------------------------------------
@@ -169,11 +262,11 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
       const holiday = await db.holiday.findFirst({ where: { date, isActive: true }, select: { name: true } });
       const isWorkingDay = workingDays.includes(isoWeekday(date));
 
-      // Who is reportable on this date: not terminated/inactive-before-date, already hired. Employees whose
-      // exit date is before the date, or who join after it, have no attendance expectation.
+      // Who is reportable on this date: people expected at work (PRD "Absent = active, ..."), already joined.
+      // Employees whose exit date is before the date, or who join after it, have no attendance expectation.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const and: any[] = [
-        { status: { notIn: ['TERMINATED', 'INACTIVE'] } },
+        { status: { in: [...WORKING_STATUSES] } },
         { OR: [{ joiningDate: null }, { joiningDate: { lte: date } }] },
         { OR: [{ exitDate: null }, { exitDate: { gte: date } }] },
       ];
@@ -269,12 +362,23 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
             { code: window.reason === 'FUTURE' ? 'CORRECTION_DATE_IN_FUTURE' : 'CORRECTION_WINDOW_EXPIRED', windowDays: CORRECTION_WINDOW_DAYS },
           );
         }
+        const me = await requireWorkingEmployee(db, employeeId);
+        const calendar = await companyCalendar(db, clock());
+        assertTimesBelongToDate(date, calendar.timezone, clock(), inAt, outAt);
+        // PRD W7: a date with approved leave is blocked (HR can still correct it directly).
+        const leave = await db.leaveRequest.findFirst({ where: { employeeId, status: 'APPROVED', startDate: { lte: date }, endDate: { gte: date } }, select: { id: true } });
+        if (leave) throw new ValidationError('This date has approved leave. Contact HR to correct it.', { code: 'CORRECTION_ON_LEAVE_DATE' });
         const existing = await db.attendanceRecord.findFirst({ where: { employeeId, date } });
         const dup = await db.attendanceCorrection.findFirst({ where: { employeeId, date, status: 'PENDING' } });
         if (dup) throw new ConflictError('A pending correction already exists for this date');
-        return db.attendanceCorrection.create({
+        const created = await db.attendanceCorrection.create({
           data: { employeeId, date, proposedCheckInAt: inAt, proposedCheckOutAt: outAt, reason: body.reason, originalCheckInAt: existing?.checkInAt ?? null, originalCheckOutAt: existing?.checkOutAt ?? null },
         });
+        await recordAudit(db, { actorId: req.user!.userId, action: 'attendance.correction_requested', entity: 'AttendanceCorrection', entityId: created.id, newValue: { employeeId, date: dateOnly(date), checkInAt: inAt, checkOutAt: outAt, reason: body.reason } });
+        // W7: the approver is the manager, else HR.
+        const managerUser = await userIdForEmployee(db, me.managerId);
+        await notify(db, { type: 'CORRECTION_REQUESTED', eventKey: created.id, recipients: managerUser ? [managerUser] : await hrUserIds(db), actorUserId: req.user!.userId, title: `${me.firstName} ${me.lastName} requested an attendance correction`, message: dateOnly(date), link: '/attendance' });
+        return created;
       });
     } catch (e) {
       if (isUniqueViolation(e)) throw new ConflictError('A pending correction already exists for this date');
@@ -316,6 +420,9 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
         if (!team.includes(corr.employeeId)) throw new ForbiddenError();
       }
       if (corr.status !== 'PENDING') throw new ConflictError('Correction request is already reviewed');
+      // Decided exactly once: only the request that moves it out of PENDING applies the change.
+      const claimed = await db.attendanceCorrection.updateMany({ where: { id, status: 'PENDING' }, data: { status: body.status, reviewerId: req.user!.userId, reviewerComment: body.comment ?? null, reviewedAt: clock() } });
+      if (claimed.count !== 1) throw new ConflictError('Correction request is already reviewed');
       if (body.status === 'APPROVED') {
         const workedMinutes = Math.max(0, Math.round((new Date(corr.proposedCheckOutAt).getTime() - new Date(corr.proposedCheckInAt).getTime()) / 60000));
         const existing = await db.attendanceRecord.findFirst({ where: { employeeId: corr.employeeId, date: corr.date } });
@@ -335,8 +442,19 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
             newValue: { checkInAt: corr.proposedCheckInAt, checkOutAt: corr.proposedCheckOutAt, reason: corr.reason, correctionId: corr.id },
           },
         });
+      } else {
+        await recordAudit(db, { actorId: req.user!.userId, action: 'attendance.correction_rejected', entity: 'AttendanceCorrection', entityId: id, oldValue: { status: 'PENDING' }, newValue: { status: 'REJECTED', comment: body.comment } });
       }
-      return db.attendanceCorrection.update({ where: { id }, data: { status: body.status, reviewerId: req.user!.userId, reviewerComment: body.comment ?? null, reviewedAt: clock() } });
+      await notify(db, {
+        type: body.status === 'APPROVED' ? 'CORRECTION_APPROVED' : 'CORRECTION_REJECTED',
+        eventKey: id,
+        recipients: [await userIdForEmployee(db, corr.employeeId)],
+        actorUserId: req.user!.userId,
+        title: `Your attendance correction was ${body.status === 'APPROVED' ? 'approved' : 'rejected'}`,
+        message: dateOnly(corr.date),
+        link: '/attendance',
+      });
+      return db.attendanceCorrection.findFirst({ where: { id } });
     });
     res.json({ data: result });
   });
@@ -376,6 +494,7 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
         if (nextIn && nextOut && !(nextIn < nextOut)) throw new ValidationError('Check-out must be after check-in');
         if (nextIn && nextIn > now) throw new ValidationError('Check-in cannot be in the future');
         if (nextOut && nextOut > now) throw new ValidationError('Check-out cannot be in the future');
+        assertTimesBelongToDate(date, (await companyCalendar(db, now)).timezone, now, body.checkInAt ? nextIn : null, body.checkOutAt ? nextOut : null);
         if (!nextIn && !nextOut && !existing) throw new ValidationError('Nothing to correct: there is no attendance record for this date');
         const same = (a: Date | null, b: Date | null) => (a?.getTime() ?? null) === (b?.getTime() ?? null);
         if (existing && same(nextIn, existing.checkInAt) && same(nextOut, existing.checkOutAt)) throw new ConflictError('The attendance record already has these values');
@@ -398,6 +517,8 @@ export function createAttendanceRouter(_prisma: PrismaClient, tenantRunner: Tena
             newValue: { employeeId: body.employeeId, date: body.date, checkInAt: nextIn, checkOutAt: nextOut, workedMinutes, reason: body.reason, correctedAt: now },
           },
         });
+        // ATT-007: the employee is notified.
+        await notify(db, { type: 'ATTENDANCE_CORRECTED', eventKey: `${saved.id}:${now.getTime()}`, recipients: [await userIdForEmployee(db, body.employeeId)], actorUserId: req.user!.userId, title: 'HR corrected your attendance', message: body.date, link: '/attendance' });
         return saved;
       });
     } catch (e) {

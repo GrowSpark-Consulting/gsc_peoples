@@ -128,6 +128,15 @@ export const createEmployeeSchema = z
 export type CreateEmployeeInput = z.input<typeof createEmployeeSchema>;
 export type CreateEmployee = z.output<typeof createEmployeeSchema>;
 
+/**
+ * What `POST /employees` accepts (PRD EMP-001): joining date and designation are required, on top of the fields
+ * above. The looser schema stays for form typing and the development demo adapter.
+ */
+export const createEmployeeRequestSchema = createEmployeeSchema.extend({
+  joiningDate: isoDate,
+  designationId: z.uuid('Choose a designation'),
+});
+
 /** Status is changed only through the status endpoint. Department/manager assignment is a PATCH. */
 export const updateEmployeeSchema = z
   .object({
@@ -145,10 +154,12 @@ export const updateEmployeeSchema = z
     joiningDate: isoDate.nullable(),
     departmentId: z.uuid().nullable(),
     managerId: z.uuid().nullable(),
+    /** The `updatedAt` the editor loaded. A record changed since then answers 409 (PRD W9). */
+    expectedUpdatedAt: z.string().max(40),
   })
   .partial()
   .strict()
-  .refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to change' });
+  .refine((v) => Object.keys(v).some((k) => k !== 'expectedUpdatedAt'), { message: 'Provide at least one field to change' });
 export type UpdateEmployeeInput = z.input<typeof updateEmployeeSchema>;
 export type UpdateEmployee = z.output<typeof updateEmployeeSchema>;
 
@@ -176,12 +187,46 @@ export const changeEmployeeStatusSchema = z.discriminatedUnion('status', [
       exitDate: isoDate,
     })
     .strict(),
-  z.object({ status: z.enum(['ONBOARDING', 'ACTIVE', 'ON_LEAVE', 'ON_NOTICE']) }).strict(),
+  /** PRD W3: Active needs a joining date and a manager, or an explicit "no manager" for top-level staff. */
+  z.object({ status: z.literal('ACTIVE'), noManager: z.boolean().optional() }).strict(),
+  /** PRD W10: On Notice may carry the planned last working date. */
+  z.object({ status: z.literal('ON_NOTICE'), exitDate: isoDate.optional() }).strict(),
+  z.object({ status: z.enum(['ONBOARDING', 'ON_LEAVE']) }).strict(),
 ]);
 export type ChangeEmployeeStatusInput = z.input<typeof changeEmployeeStatusSchema>;
 export type ChangeEmployeeStatus = z.output<typeof changeEmployeeStatusSchema>;
 
 export const employeeIdParamSchema = z.object({ id: z.uuid() });
+
+/** AUTH-004 / W4: invite from the employee record. The role defaults to Employee. */
+export const employeeInviteSchema = z
+  .object({ roleKey: z.enum(['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER', 'EMPLOYEE']).optional() })
+  .strict();
+
+// ---------- directory (EMP-003: every user sees name, title, department and work email only) ----------
+
+export const directoryQuerySchema = z
+  .object({
+    q: z.string().trim().max(100).optional(),
+    departmentId: z.uuid().optional(),
+    page: z.coerce.number().int().min(1).default(1),
+    pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  })
+  .strict();
+export type DirectoryQuery = z.output<typeof directoryQuerySchema>;
+
+export const directoryEntrySchema = z.object({
+  id: z.uuid(),
+  firstName: z.string(),
+  lastName: z.string(),
+  title: z.string().nullable(),
+  departmentName: z.string().nullable(),
+  workEmail: z.string().nullable(),
+});
+export const directoryResponseSchema = z.object({
+  data: z.array(directoryEntrySchema),
+  page: z.object({ page: z.number().int(), pageSize: z.number().int(), total: z.number().int() }),
+});
 
 export const employeeTimelineEntrySchema = z.object({
   id: z.string(),

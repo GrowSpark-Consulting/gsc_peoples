@@ -3,8 +3,7 @@
  *
  * Dates are `YYYY-MM-DD` strings or UTC-midnight Date objects (the representation of a calendar date in the
  * `date` column). "Today" is the calendar date in the COMPANY's time zone (`companies.timezone`), obtained with
- * `companyDay`; it is not the UTC date. Whether the PRD wants the business day to roll over at local midnight
- * is a decision recorded in docs/development/production-verification-report.md.
+ * `companyDay`; it is not the UTC date (PRD "dates use company timezone", ATT-001).
  */
 
 const SAFE_ZONE_FALLBACK = 'UTC';
@@ -26,6 +25,21 @@ export function companyDay(now: Date, timeZone?: string | null): Date {
   return new Date(Date.UTC(g('year'), g('month') - 1, g('day')));
 }
 
+/** The instant at which a calendar date begins in the company's time zone. */
+export function zonedDayStart(date: Date, timeZone?: string | null): Date {
+  const zone = validZone(timeZone);
+  const offsetAt = (instant: Date) => {
+    const parts = new Intl.DateTimeFormat('en-US', {
+      timeZone: zone, hour12: false, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }).formatToParts(instant);
+    const g = (t: string) => Number(parts.find((p) => p.type === t)?.value);
+    return Date.UTC(g('year'), g('month') - 1, g('day'), g('hour') % 24, g('minute'), g('second')) - instant.getTime();
+  };
+  // First guess with the offset at UTC midnight, then correct once in case a clock change falls in between.
+  const guess = new Date(date.getTime() - offsetAt(date));
+  return new Date(date.getTime() - offsetAt(guess));
+}
+
 /** Minutes since local midnight of an instant in the company's time zone. */
 export function companyMinutes(now: Date, timeZone?: string | null): number {
   const parts = new Intl.DateTimeFormat('en-US', { timeZone: validZone(timeZone), hour12: false, hour: '2-digit', minute: '2-digit' }).formatToParts(now);
@@ -34,10 +48,8 @@ export function companyMinutes(now: Date, timeZone?: string | null): number {
 }
 
 /**
- * ATT-005: an employee may request a correction for an attendance date at most this many calendar days
- * in the past. The PRD text is not in the repository: "seven-day window" is read as
- * `today - date <= 7` (today-7 is allowed, today-8 is not) and a future date is never allowed.
- * One constant, so the reading can be changed in one place.
+ * ATT-005 / A6: an employee may request a correction for an attendance date at most this many calendar days
+ * in the past ("up to 7 days back": today-7 is allowed, today-8 is not). A future date is never allowed.
  */
 export const CORRECTION_WINDOW_DAYS = 7;
 
@@ -129,3 +141,11 @@ export function deriveOverviewStatus(i: StatusInput): OverviewStatus {
   if (i.workingDays.length > 0 && !i.workingDays.includes(isoWeekday(i.date))) return 'WEEKEND';
   return dayIsOver ? 'ABSENT' : 'NOT_YET_IN';
 }
+
+/**
+ * Statuses in which a person is expected at work: they can check in and apply for leave (PRD W3, W5, W6 "Pre:
+ * Active"), and they are counted for attendance. On Notice is still employed; On Leave is a legacy status.
+ * Onboarding, Inactive and Terminated people are neither.
+ */
+export const WORKING_STATUSES = ['ACTIVE', 'ON_NOTICE', 'ON_LEAVE'] as const;
+export const isWorkingStatus = (status: string): boolean => (WORKING_STATUSES as readonly string[]).includes(status);

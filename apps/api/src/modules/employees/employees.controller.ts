@@ -2,7 +2,9 @@ import type { RequestHandler } from 'express';
 import type {
   ChangeEmployeeStatus,
   CreateEmployee,
+  DirectoryQuery,
   EmployeeListQuery,
+  RoleKey,
   EmployeeSelfUpdate,
   UpdateEmployee,
 } from '@gsc/contracts';
@@ -46,8 +48,12 @@ export function createEmployeeController(service: EmployeeService) {
     res.json(await service.timeline(user(req), id(req)));
   };
   const invite: RequestHandler = async (req, res) => {
-    res.status(202).json({ data: await service.sendInvitation(user(req), id(req)) });
+    const body = (req.body ?? {}) as { roleKey?: RoleKey };
+    res.status(202).json({ data: await service.sendInvitation(user(req), id(req), body.roleKey) });
+  };
+  const directory: RequestHandler = async (req, res) => {
+    res.json(await service.directory(user(req), req.query as unknown as DirectoryQuery));
   };
 
-  return { list, get, getMe, create, update, selfUpdate, changeStatus, timeline, invite };
+  return { list, get, getMe, create, update, selfUpdate, changeStatus, timeline, invite, directory };
 }

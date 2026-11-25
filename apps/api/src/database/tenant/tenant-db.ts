@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any -- the tenant facade returns untyped rows (database/tenant/tenant-db.ts) */
 import { Prisma, type PrismaClient } from '../generated/client';
 import { tenantMeta } from './meta.generated';
 import { ALLOWED_OPERATIONS, scopeOperation, TenantViolationError } from './scope';

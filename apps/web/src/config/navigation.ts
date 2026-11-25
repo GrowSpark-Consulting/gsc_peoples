@@ -9,18 +9,24 @@ import {
   UserPlus,
   Users,
 } from 'lucide-react';
+import { PERMISSIONS, type Permission } from '@gsc/contracts';
 import type { SidebarItem, SidebarSection } from '@/components/layout/sidebar';
 
-export const NAV_ITEMS: SidebarItem[] = [
+export interface NavItemConfig extends SidebarItem {
+  /** If set, the caller must hold at least one of these permissions to see the link. */
+  anyPermission?: readonly Permission[];
+}
+
+export const NAV_ITEMS: NavItemConfig[] = [
   { id: 'dashboard', label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
   { id: 'employees', label: 'Employees', href: '/employees', icon: Users },
-  { id: 'departments', label: 'Departments', href: '/departments', icon: Building2 },
-  { id: 'attendance', label: 'Attendance', href: '/attendance', icon: CalendarCheck },
-  { id: 'leave', label: 'Leave', href: '/leave', icon: CalendarDays },
-  { id: 'onboarding', label: 'Onboarding', href: '/onboarding', icon: UserPlus },
-  { id: 'documents', label: 'Documents', href: '/documents', icon: FileText },
-  { id: 'reports', label: 'Reports', href: '/reports', icon: ChartColumn },
-  { id: 'settings', label: 'Settings', href: '/settings', icon: Settings },
+  { id: 'departments', label: 'Departments', href: '/departments', icon: Building2, anyPermission: [PERMISSIONS.ORGANIZATION_READ, PERMISSIONS.ORG_READ] },
+  { id: 'attendance', label: 'Attendance', href: '/attendance', icon: CalendarCheck, anyPermission: [PERMISSIONS.ATTENDANCE_CHECK, PERMISSIONS.ATTENDANCE_READ_ALL, PERMISSIONS.ATTENDANCE_READ_TEAM, PERMISSIONS.ATTENDANCE_READ_SELF] },
+  { id: 'leave', label: 'Leave', href: '/leave', icon: CalendarDays, anyPermission: [PERMISSIONS.LEAVE_READ_ALL, PERMISSIONS.LEAVE_READ_TEAM, PERMISSIONS.LEAVE_READ_SELF] },
+  { id: 'onboarding', label: 'Onboarding', href: '/onboarding', icon: UserPlus, anyPermission: [PERMISSIONS.ONBOARDING_READ_ALL, PERMISSIONS.ONBOARDING_READ_SELF] },
+  { id: 'documents', label: 'Documents', href: '/documents', icon: FileText, anyPermission: [PERMISSIONS.DOCUMENT_READ_ALL, PERMISSIONS.DOCUMENT_READ_TEAM, PERMISSIONS.DOCUMENT_READ_SELF] },
+  { id: 'reports', label: 'Reports', href: '/reports', icon: ChartColumn, anyPermission: [PERMISSIONS.ATTENDANCE_REPORT] },
+  { id: 'settings', label: 'Settings', href: '/settings', icon: Settings, anyPermission: [PERMISSIONS.SETTINGS_READ, PERMISSIONS.USER_ACCOUNT_READ, PERMISSIONS.AUDIT_READ] },
 ];
 
 const byId = (...ids: string[]) => NAV_ITEMS.filter((i) => ids.includes(i.id));
@@ -30,6 +36,15 @@ export const NAV_SECTIONS: SidebarSection[] = [
   { heading: 'Insights', items: byId('reports') },
   { heading: 'Workspace', items: byId('settings') },
 ];
+
+export function visibleNavSections(permissions?: readonly string[]): SidebarSection[] {
+  if (!permissions) return NAV_SECTIONS;
+  const allow = (item: SidebarItem) => {
+    const req = (item as NavItemConfig).anyPermission;
+    return !req || req.some((p) => permissions.includes(p));
+  };
+  return NAV_SECTIONS.map((s) => ({ ...s, items: s.items.filter(allow) })).filter((s) => s.items.length > 0);
+}
 
 export function findNavItem(pathname: string): SidebarItem | undefined {
   return NAV_ITEMS.find(

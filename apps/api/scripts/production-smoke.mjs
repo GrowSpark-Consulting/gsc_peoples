@@ -37,6 +37,8 @@ const baseEnv = {
   SUPABASE_STORAGE_SERVICE_KEY: 'smoke-test-not-a-real-key',
   AUTH_RATE_LIMIT_PER_15_MIN: '40',
   RATE_LIMIT_PER_MINUTE: '300',
+  MAIL_DRIVER: 'disabled', // no mail server in the smoke test: invitations must then answer 503
+  DB_TARGET: 'local',
 };
 delete baseEnv.DIRECT_URL;
 delete baseEnv.DEV_AUTH_ENABLED;
@@ -61,6 +63,9 @@ async function startsAndStays(env, ms = 15_000) {
 check('production refuses to start with the local document driver', !(await startsAndStays({ ...baseEnv, DOCUMENT_STORAGE_DRIVER: 'local', PORT: '4591', API_PORT: '4591' })));
 check('production refuses to start without CORS_ORIGINS', !(await startsAndStays({ ...baseEnv, CORS_ORIGINS: '', API_PORT: '4592' })));
 check('production refuses AUTH_MODE=development', !(await startsAndStays({ ...baseEnv, AUTH_MODE: 'development', API_PORT: '4593' })));
+check('production refuses to start without choosing an email driver', !(await startsAndStays({ ...baseEnv, MAIL_DRIVER: '', API_PORT: '4594' })));
+check('production refuses a wildcard CORS origin', !(await startsAndStays({ ...baseEnv, CORS_ORIGINS: '*', API_PORT: '4595' })));
+check('production refuses smtp without a web app address for the links', !(await startsAndStays({ ...baseEnv, MAIL_DRIVER: 'smtp', SMTP_HOST: 'smtp.invalid', MAIL_FROM: 'a@example.com', WEB_APP_URL: '', API_PORT: '4596' })));
 
 // 2. The real configuration.
 const server = spawn(process.execPath, ['dist/server.js'], { cwd: apiDir, env: baseEnv, stdio: ['ignore', 'pipe', 'pipe'] });
@@ -132,11 +137,37 @@ try {
   check('a different client IP is not affected', other.status === 200);
   check('the health check is never rate limited', (await Promise.all(Array.from({ length: 30 }, () => fetch(`${BASE}/health`)))).every((r) => r.status === 200));
 
+  // Nothing that grants access is ever returned by a production response.
+  const forgot = await fetch(`${BASE}/auth/forgot-password`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '192.0.2.120' }, body: JSON.stringify({ email: 'team@e2e.local' }) });
+  check('forgot-password returns no development token header', forgot.status === 200 && forgot.headers.get('x-development-reset-token') === null);
+  const hrLogin = await login('sa@e2e.local', 'SUPER_ADMIN', PASSWORD, '192.0.2.121');
+  const hrCookies = hrLogin.headers.getSetCookie().map((c) => c.split(';')[0]);
+  const hrCsrf = decodeURIComponent(hrCookies.find((c) => c.startsWith('gsc_csrf=')).split('=')[1]);
+  const invite = await fetch(`${BASE}/settings/users/invite`, { method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: hrCookies.join('; '), 'X-CSRF-Token': hrCsrf, 'X-Forwarded-For': '192.0.2.121' }, body: JSON.stringify({ email: 'smoke-invitee@e2e.local', roleKey: 'EMPLOYEE' }) });
+  const inviteBody = await invite.text();
+  check('without an email channel an invitation is refused (503) and returns no token', invite.status === 503 && !/invitationToken/.test(inviteBody), `status ${invite.status}`);
+  const malformed = await fetch(`${BASE}/me`, { headers: { Cookie: 'gsc_session=%E0%A4%A', 'X-Forwarded-For': '192.0.2.122' } });
+  check('a malformed cookie is 401, not 500', malformed.status === 401);
+  const broken = await fetch(`${BASE}/auth/login`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '192.0.2.122' }, body: '{"password":"hunter2-secret"' });
+  check('broken JSON is a 400 that does not echo the body', broken.status === 400 && !(await broken.text()).includes('hunter2'));
+
   const err = await fetch(`${BASE}/nope`, { headers: { Cookie: cookieHeader } });
   check('unknown routes answer a JSON 404 without a stack', err.status === 404 && !JSON.stringify(await err.json()).includes('at '));
   check('the server log has no cookie, password or token values', !/gsc_session=|E2e-Scratch|smoke-test-not-a-real-key/.test(log));
 } finally {
   server.kill();
+}
+
+// 3. Graceful shutdown. Windows cannot deliver SIGTERM to another process, so a preload raises it inside the server,
+// which runs exactly the handler Render's SIGTERM would run.
+{
+  const preload = `data:text/javascript,setTimeout(()=>process.emit('SIGTERM'),4000)`;
+  const child = spawn(process.execPath, ['--import', preload, 'dist/server.js'], { cwd: apiDir, env: { ...baseEnv, API_PORT: '4597', LOG_LEVEL: 'info' }, stdio: ['ignore', 'pipe', 'ignore'] });
+  let out = '';
+  child.stdout.on('data', (d) => (out += d));
+  const code = await Promise.race([new Promise((r) => child.on('exit', r)), sleep(20_000).then(() => 'timeout')]);
+  if (code === 'timeout') child.kill();
+  check('SIGTERM closes the server and database and exits 0', code === 0 && /Shutting down/.test(out) && !/Forced exit/.test(out), `exit ${code}`);
 }
 const failed = results.filter((r) => !r).length;
 console.log(`\n${results.length - failed} passed, ${failed} failed`);

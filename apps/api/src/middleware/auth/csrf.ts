@@ -2,6 +2,7 @@ import type { RequestHandler } from 'express';
 import type { PrismaClient } from '../../database/generated/client';
 import { tokenHash } from '../../modules/auth/password';
 import { ForbiddenError } from '../../shared/errors';
+import { decodeCookieValue } from './cookie-value';
 
 export function requireCsrf(prisma?: PrismaClient): RequestHandler {
   return async (req, _res, next) => {
@@ -18,8 +19,8 @@ export function requireCsrf(prisma?: PrismaClient): RequestHandler {
     const csrfCookie = cookies.find((part) => part.startsWith('gsc_csrf='));
     if (!csrfHeader || !sessionCookie || !csrfCookie) throw new ForbiddenError('CSRF validation failed');
 
-    const csrfValue = decodeURIComponent(csrfCookie.slice('gsc_csrf='.length));
-    const sessionValue = decodeURIComponent(sessionCookie.slice('gsc_session='.length));
+    const csrfValue = decodeCookieValue(csrfCookie.slice('gsc_csrf='.length));
+    const sessionValue = decodeCookieValue(sessionCookie.slice('gsc_session='.length));
     if (!prisma || csrfHeader !== csrfValue) throw new ForbiddenError('CSRF validation failed');
 
     const session = await prisma.userSession.findUnique({

@@ -93,17 +93,20 @@ describe('ATT-002: duplicate check-in returns 409', () => {
     expect((await api('hr', 'post', '/attendance/check-in')).status).toBe(409);
   });
 
-  it('a non-working day and a holiday are still refused (400), not 409', async () => {
+  it('weekend and holiday check-in is allowed and recorded (PRD W5); a second one is still 409', async () => {
     now = new Date('2026-11-14T10:00:00.000Z'); // Saturday
-    expect((await api('team', 'post', '/attendance/check-in')).status).toBe(400);
+    expect((await api('team', 'post', '/attendance/check-in')).status).toBe(201);
+    expect((await api('team', 'post', '/attendance/check-in')).status).toBe(409);
     now = new Date('2026-11-18T10:00:00.000Z');
     await admin.query(`INSERT INTO hr.holidays (id,"companyId",date,name,"updatedAt") VALUES ($1,$2,'2026-11-18','Founders Day',now())`, [id(), A]);
-    expect((await api('team', 'post', '/attendance/check-in')).status).toBe(400);
+    expect((await api('team', 'post', '/attendance/check-in')).status).toBe(201);
+    expect(await record('team', '2026-11-14')).toHaveLength(1);
   });
 });
 
 describe('ATT-005: correction requests and the seven-day window (enforced by the API)', () => {
   it('accepts today, today-1 and exactly today-7', async () => {
+    now = new Date('2026-11-18T18:00:00.000Z'); // late evening locally, so today's proposed times are in the past
     for (const day of ['2026-11-18', '2026-11-17', '2026-11-11']) expect((await correction('team', day)).status, day).toBe(201);
   });
 
@@ -128,8 +131,11 @@ describe('ATT-005: correction requests and the seven-day window (enforced by the
     expect(old.status).toBe(400);
     expect(old.body.error.details.code).toBe('CORRECTION_WINDOW_EXPIRED');
     expect((await correction('sub', '2026-11-12')).status).toBe(201);
-    expect((await correction('peer', '2026-11-19')).status).toBe(201); // "today" locally, tomorrow in UTC
-    expect((await correction('mgr', '2026-11-20')).status).toBe(400); // really in the future
+    // 00:00:30 on the 19th locally: "today" locally while UTC still says the 18th
+    now = new Date('2026-11-18T18:31:00.000Z');
+    const today = await api('peer', 'post', '/attendance/corrections', { date: '2026-11-19', proposedCheckInAt: '2026-11-18T18:30:00.000Z', proposedCheckOutAt: '2026-11-18T18:30:30.000Z', reason: 'night' });
+    expect(today.status, JSON.stringify(today.body)).toBe(201);
+    expect((await correction('mgr', '2026-11-20')).body.error.details.code).toBe('CORRECTION_DATE_IN_FUTURE');
   });
 
   it('a second pending request for the same date is 409; a different date is fine', async () => {
@@ -473,9 +479,11 @@ describe('company time zone decides the attendance day (not the UTC date)', () =
     expect(await record('empb', '2026-11-18')).toHaveLength(1);
   });
 
-  it('the working-day rule uses the company day: Friday 20:00 UTC is Saturday in Kolkata, so check-in is refused', async () => {
+  it('the record is dated with the company day: Friday 20:00 UTC is Saturday in Kolkata', async () => {
     now = new Date('2026-11-13T20:00:00.000Z'); // Friday UTC, Saturday 01:30 local
-    expect((await api('team', 'post', '/attendance/check-in')).status).toBe(400);
+    expect((await api('team', 'post', '/attendance/check-in')).status).toBe(201);
+    expect(await record('team', '2026-11-14')).toHaveLength(1);
+    expect(await record('team', '2026-11-13')).toHaveLength(0);
   });
 
   it('the overview treats the local date as today: the UTC date is "yesterday" and complete, the local date is not over yet', async () => {

@@ -17,6 +17,7 @@ import { requireAnyPermission, requirePermission } from '../../middleware/author
 import { AppError, ForbiddenError, NotFoundError, ServiceUnavailableError, ValidationError } from '../../shared/errors';
 import { LOCAL_FILE_ROUTE, StorageError, type DocumentStorage, type LocalDocumentStorage } from '../../integrations/storage';
 import { checkUpload, cleanFileName } from './documents.rules';
+import { resolveTeamEmployeeIds } from '../authorization/team-scope';
 import { readUpload } from './multipart';
 
 /** Documents stay recoverable for this long after a soft delete; the retention job purges after it. */
@@ -45,9 +46,9 @@ export function createDocumentsRouter(_prisma: PrismaClient, tenantRunner: Tenan
     if (doc.isCompanyDocument) return has(req, PERMISSIONS.DOCUMENT_READ_ALL) || has(req, PERMISSIONS.DOCUMENT_READ_SELF) || has(req, PERMISSIONS.COMPANY_READ);
     if (has(req, PERMISSIONS.DOCUMENT_READ_ALL)) return true;
     if (doc.ownerEmployeeId && doc.ownerEmployeeId === req.user.employeeId) return true;
+    // DOC-004 with PRD section 5 team scope: direct and indirect reports, only when flagged.
     if (doc.visibleToManager && has(req, PERMISSIONS.DOCUMENT_READ_TEAM)) {
-      const emp = await db.employee.findFirst({ where: { id: doc.ownerEmployeeId }, select: { managerId: true } });
-      return emp?.managerId === req.user.employeeId;
+      return (await resolveTeamEmployeeIds(db, req.user.employeeId ?? null)).includes(doc.ownerEmployeeId);
     }
     return false;
   }
@@ -60,7 +61,16 @@ export function createDocumentsRouter(_prisma: PrismaClient, tenantRunner: Tenan
       const where: any = { deletedAt: null };
       if (q.company) where.isCompanyDocument = true;
       else if (q.employeeId) where.ownerEmployeeId = q.employeeId;
-      else if (!has(req, PERMISSIONS.DOCUMENT_READ_ALL)) where.OR = [{ ownerEmployeeId: req.user!.employeeId }, { isCompanyDocument: true }];
+      else if (!has(req, PERMISSIONS.DOCUMENT_READ_ALL)) {
+        const teamIds = has(req, PERMISSIONS.DOCUMENT_READ_TEAM)
+          ? await resolveTeamEmployeeIds(db, req.user!.employeeId ?? null)
+          : [];
+        where.OR = [
+          { ownerEmployeeId: req.user!.employeeId },
+          { isCompanyDocument: true },
+          ...(teamIds.length ? [{ ownerEmployeeId: { in: teamIds }, visibleToManager: true }] : []),
+        ];
+      }
       const rows = await db.employeeDocument.findMany({ where, orderBy: { createdAt: 'desc' }, take: 200 });
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const filtered: any[] = [];
@@ -122,7 +132,8 @@ export function createDocumentsRouter(_prisma: PrismaClient, tenantRunner: Tenan
             storedPath: key,
             mimeType: upload.file!.mimeType,
             sizeBytes: upload.file!.buffer.length,
-            visibleToManager: kind === 'employee' ? (f.visibleToManager ?? false) : false,
+            // DOC-004: only HR decides that a manager may see a document; an uploader without that permission cannot.
+            visibleToManager: kind === 'employee' && has(req, PERMISSIONS.DOCUMENT_VISIBILITY_MANAGE) ? (f.visibleToManager ?? false) : false,
             uploadedByUserId: req.user.userId,
           },
         });
@@ -195,8 +206,8 @@ export function createDocumentsRouter(_prisma: PrismaClient, tenantRunner: Tenan
 
   /**
    * Soft delete: the row gets `deletedAt` and a purge date 30 days out and disappears from every list and
-   * download immediately. The object stays in the bucket until the retention job purges it (not built yet,
-   * see the sprint report), so an accidental delete is recoverable. Deleting twice is a 404.
+   * download immediately. The object stays in the bucket until the retention purge removes it (retention.ts,
+   * run by `jobs/purge-documents.ts`), so an accidental delete is recoverable. Deleting twice is a 404.
    */
   router.delete('/:id', requirePermission(PERMISSIONS.DOCUMENT_DELETE), validate({ params: uuidParam }), async (req, res) => {
     const id = (req.params as { id: string }).id;

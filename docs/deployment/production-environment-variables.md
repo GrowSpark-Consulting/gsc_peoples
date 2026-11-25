@@ -1,3 +1,5 @@
+> **Superseded on 2026-11-25** by [production-environment-variables.md](../development/production-environment-variables.md). Kept for history; do not follow the steps below.
+
 # Production environment variables
 
 Derived from `apps/api/src/config/env.ts`, `apps/api/prisma.config.ts`, `apps/web/src/config/env.ts`, `proxy.ts`. Nothing here contains a real secret; `<…>` marks values to supply.

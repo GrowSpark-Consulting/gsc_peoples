@@ -21,6 +21,7 @@ const PASSWORD = 'correct-horse-battery';
 const COMPANY_A = randomUUID();
 const COMPANY_B = randomUUID();
 const DEPT_A = randomUUID(); // department of company A for the create-employee contract (PRD EMP-001)
+const DESIGNATION_A = randomUUID();
 const COMPANY_DEV = 'dev-company'; // intentionally NOT a UUID, like the provisioned dev company
 
 let admin: pg.Client;
@@ -301,9 +302,10 @@ describe('session lifecycle', () => {
 });
 
 describe('CSRF (mutating requests authenticated by the session cookie)', () => {
-  const body = () => ({ employeeNumber: `E-${id().slice(0, 8)}`, firstName: 'Test', lastName: 'Person', workEmail: `${id().slice(0, 8)}@example.test`, joiningDate: '2026-01-05', departmentId: DEPT_A });
+  const body = () => ({ employeeNumber: `E-${id().slice(0, 8)}`, firstName: 'Test', lastName: 'Person', workEmail: `${id().slice(0, 8)}@example.test`, joiningDate: '2026-01-05', departmentId: DEPT_A, designationId: DESIGNATION_A });
   async function session() {
     await seedUser({ email: 'hr@example.com', memberships: [{ companyId: COMPANY_A }] });
+    await admin.query(`INSERT INTO hr.designations (id,"companyId",name,"updatedAt") VALUES ($1,$2,'Engineer',now()) ON CONFLICT (id) DO NOTHING`, [DESIGNATION_A, COMPANY_A]);
     return (await login({ email: 'hr@example.com', password: PASSWORD })).cookies;
   }
   const post = (cookies: Record<string, string>) =>

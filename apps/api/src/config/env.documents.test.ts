@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { parseEnv } from './env';
 
 const dev = { NODE_ENV: 'development', AUTH_MODE: 'session', DATABASE_URL: 'postgresql://u:p@localhost:5432/hr_db?schema=hr' };
-const prod = { ...dev, NODE_ENV: 'production', CORS_ORIGINS: 'https://hr.example.com' };
+const prod = { ...dev, NODE_ENV: 'production', CORS_ORIGINS: 'https://hr.example.com', MAIL_DRIVER: 'disabled' };
 const supabase = { DOCUMENT_STORAGE_DRIVER: 'supabase', SUPABASE_STORAGE_URL: 'https://abc.supabase.co', SUPABASE_STORAGE_SERVICE_KEY: 'k' };
 
 describe('document storage configuration', () => {

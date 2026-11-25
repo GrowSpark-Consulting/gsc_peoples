@@ -67,6 +67,7 @@ export const departmentIdParamSchema = z.object({ id: z.uuid() });
 export const departmentResponseSchema = z.object({ data: departmentSchema });
 export const departmentDetailListResponseSchema = z.object({ data: z.array(departmentSchema) });
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- recursive schema: the node type refers to itself
 export const organizationHierarchyNodeSchema: z.ZodType<any> = z.lazy(() => z.object({
   id: z.uuid(),
   employeeNumber: z.string(),

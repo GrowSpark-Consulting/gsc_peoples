@@ -1,3 +1,5 @@
+> **Superseded on 2026-11-25** by [production-migration-and-bootstrap.md](production-migration-and-bootstrap.md). Kept for history; do not follow the steps below.
+
 # Production bootstrap: implementation plan (PRD W1). PLAN ONLY, nothing implemented or executed
 
 Goal: one idempotent command that sets up the single company (PRD A1) on a freshly migrated hosted `hr` schema.

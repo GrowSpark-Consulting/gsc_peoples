@@ -157,8 +157,9 @@ describe('HR Admin: the ordinary-user workflow (AUTH-004, AUTH-006, SET-002)', (
       const accept = await request(app).post('/api/v1/auth/accept-invitation').send({ token: res.body.data.invitationToken, password: 'a-long-enough-pass' });
       expect(accept.status).toBe(200);
     }
-    expect(await auditActions()).toEqual(['INVITED', 'INVITED']);
-    const actor = await admin.query(`SELECT DISTINCT "actorId" FROM hr.audit_logs WHERE "companyId"=$1`, [COMPANY_A]);
+    // each invitation is audited, and so is each activation (by the invitee)
+    expect(await auditActions()).toEqual(['INVITED', 'INVITATION_ACCEPTED', 'INVITED', 'INVITATION_ACCEPTED']);
+    const actor = await admin.query(`SELECT DISTINCT "actorId" FROM hr.audit_logs WHERE "companyId"=$1 AND action='INVITED'`, [COMPANY_A]);
     expect(actor.rows).toEqual([{ actorId: seeded.hr.userId }]);
   });
 
@@ -257,8 +258,8 @@ describe('HR Admin: the limits', () => {
     const foreignSa = await seedUser('foreign.sa@example.com', COMPANY_B, 'SUPER_ADMIN');
     const hr = await login('hr');
     for (const target of [foreignHr.membershipId, foreignSa.membershipId]) {
-      expect((await send('patch', hr, `/settings/users/${target}/status`, { status: 'DISABLED' })).status).toBe(409);
-      expect((await send('post', hr, `/settings/users/${target}/invitations/resend`)).status).toBe(409);
+      expect((await send('patch', hr, `/settings/users/${target}/status`, { status: 'DISABLED' })).status).toBe(404);
+      expect((await send('post', hr, `/settings/users/${target}/invitations/resend`)).status).toBe(404);
       expect((await send('patch', hr, `/settings/users/${target}/role`, { roleKey: 'EMPLOYEE' })).status).toBe(403);
     }
     const { rows } = await admin.query(`SELECT status FROM hr.company_memberships WHERE id = ANY($1)`, [[foreignHr.membershipId, foreignSa.membershipId]]);
@@ -266,11 +267,11 @@ describe('HR Admin: the limits', () => {
     expect(await auditActions(COMPANY_B)).toEqual([]);
   });
 
-  it('cannot change roles, read or change company settings, or read the audit log', async () => {
+  it('may view company settings but cannot change them or roles, or read the audit log', async () => {
     const hr = await login('hr');
     expect((await send('patch', hr, `/settings/users/${seeded.emp.membershipId}/role`, { roleKey: 'SUPER_ADMIN' })).status).toBe(403);
     expect((await send('patch', hr, `/settings/users/${seeded.hr.membershipId}/role`, { roleKey: 'SUPER_ADMIN' })).status).toBe(403);
-    expect((await get(hr, '/settings/company')).status).toBe(403);
+    expect((await get(hr, '/settings/company')).status).toBe(200); // PRD section 5: HR views company settings
     expect((await send('patch', hr, '/settings/company', { name: 'Hacked' })).status).toBe(403);
     expect((await get(hr, '/settings/audit-logs')).status).toBe(403);
     const { rows } = await admin.query(`SELECT r.key FROM hr.company_memberships m JOIN hr.roles r ON r.id = m."roleId" WHERE m.id = $1`, [seeded.emp.membershipId]);
@@ -280,10 +281,10 @@ describe('HR Admin: the limits', () => {
   it("cannot reach another company's accounts: a foreign membership id is not found and unchanged", async () => {
     const hr = await login('hr');
     const res = await send('patch', hr, `/settings/users/${otherCompanyMembership}/status`, { status: 'DISABLED' });
-    expect(res.status).toBe(409); // existing contract: 'Membership not found' (never reveals or touches it)
+    expect(res.status).toBe(404); // PRD section 5: a foreign id is not found, never revealed or touched
     const { rows } = await admin.query(`SELECT status FROM hr.company_memberships WHERE id=$1`, [otherCompanyMembership]);
     expect(rows[0].status).toBe('ACTIVE');
-    expect((await send('post', hr, `/settings/users/${otherCompanyMembership}/invitations/resend`)).status).toBe(409);
+    expect((await send('post', hr, `/settings/users/${otherCompanyMembership}/invitations/resend`)).status).toBe(404);
   });
 
   it('writes still need a valid CSRF token', async () => {

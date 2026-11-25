@@ -1,6 +1,7 @@
 import type { RequestHandler } from 'express';
 import type { CentralAuthProvider } from '../../integrations/central-auth';
 import { UnauthorizedError } from '../../shared/errors';
+import { decodeCookieValue } from './cookie-value';
 
 /**
  * Verifies the bearer token with the configured Central Auth provider and sets `req.identity`.
@@ -17,7 +18,7 @@ export function authenticate(provider: CentralAuthProvider, sessionProvider?: Ce
       ?.split(';')
       .map((part) => part.trim())
       .find((part) => part.startsWith('gsc_session='));
-    const sessionToken = sessionCookie ? decodeURIComponent(sessionCookie.slice('gsc_session='.length)) : undefined;
+    const sessionToken = sessionCookie ? decodeCookieValue(sessionCookie.slice('gsc_session='.length)) : undefined;
 
     // A session cookie is only usable when a session provider is configured; otherwise it is ignored
     // and the caller must present a bearer token. Never call a provider with an undefined token.

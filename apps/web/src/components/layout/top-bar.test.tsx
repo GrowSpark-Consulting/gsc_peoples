@@ -1,8 +1,13 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { titleFor } from '@/config/navigation';
+import { ROLE_PERMISSIONS } from '@gsc/contracts';
+import { titleFor, visibleNavSections } from '@/config/navigation';
 import { TopBar } from './top-bar';
+
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn(), refresh: vi.fn(), push: vi.fn() }),
+}));
 
 const props = {
   title: 'Dashboard',
@@ -76,5 +81,22 @@ describe('titleFor', () => {
     expect(titleFor('/employees/abc')).toBe('Employees');
     expect(titleFor('/profile')).toBe('My profile');
     expect(titleFor('/nowhere')).toBe('GSC Peoples');
+  });
+});
+
+describe('visibleNavSections', () => {
+  const ids = (perms: readonly string[]) =>
+    visibleNavSections(perms).flatMap((s) => s.items.map((i) => i.id));
+
+  it('hides admin/HR routes from Employees and hides Onboarding from Managers', () => {
+    expect(ids(ROLE_PERMISSIONS.EMPLOYEE)).not.toContain('reports');
+    expect(ids(ROLE_PERMISSIONS.EMPLOYEE)).not.toContain('settings');
+    expect(ids(ROLE_PERMISSIONS.EMPLOYEE)).toContain('onboarding');
+    expect(ids(ROLE_PERMISSIONS.MANAGER)).not.toContain('onboarding');
+    expect(ids(ROLE_PERMISSIONS.MANAGER)).not.toContain('reports');
+    expect(ids(ROLE_PERMISSIONS.MANAGER)).not.toContain('settings');
+    expect(ids(ROLE_PERMISSIONS.HR_ADMIN)).toEqual(
+      expect.arrayContaining(['dashboard', 'employees', 'departments', 'attendance', 'leave', 'onboarding', 'documents', 'reports', 'settings']),
+    );
   });
 });

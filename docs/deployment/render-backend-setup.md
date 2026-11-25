@@ -1,3 +1,5 @@
+> **Superseded on 2026-11-25** by [render-deployment-guide.md](../development/render-deployment-guide.md). Kept for history; do not follow the steps below.
+
 # Render backend setup: `gsc-peoples-api`
 
 **Not created.** Everything below is prepared after approval [APPROVAL]. A Blueprint (`render.yaml` at the repository root) declares the same service: Render dashboard → New → Blueprint → select the repository; secrets are prompted for (`sync: false`). The manual table below is the reference the Blueprint was derived from.

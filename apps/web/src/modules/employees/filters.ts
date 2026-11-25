@@ -20,6 +20,8 @@ export interface DirectoryFilters {
   /** Any of these employment types (empty = no filter). The API accepts a list. */
   employmentType: EmploymentType[];
   departmentId: string;
+  /** Absent means no designation filter. */
+  designationId?: string;
   manager: ManagerOption | null;
 }
 
@@ -33,7 +35,7 @@ export const EMPTY_FILTERS: DirectoryFilters = {
 
 export const hasActiveFilters = (f: DirectoryFilters) =>
   Boolean(
-    f.q.trim() || f.status.length || f.employmentType.length || f.departmentId || f.manager,
+    f.q.trim() || f.status.length || f.employmentType.length || f.departmentId || f.designationId || f.manager,
   );
 
 export function toListQuery(
@@ -47,6 +49,7 @@ export function toListQuery(
     ...(f.status.length ? { status: f.status } : {}),
     ...(f.employmentType.length ? { employmentType: f.employmentType } : {}),
     ...(f.departmentId ? { departmentId: f.departmentId } : {}),
+    ...(f.designationId ? { designationId: f.designationId } : {}),
     ...(f.manager ? { managerId: f.manager.id } : {}),
   };
 }
@@ -64,7 +67,9 @@ export function filtersFromSearchParams(sp: URLSearchParams): DirectoryFilters {
   const managerParam = sp.get('manager');
   const managerId = isUuid(managerParam) ? managerParam : null;
   const deptParam = sp.get('dept');
+  const designationParam = sp.get('desig');
   return {
+    ...(isUuid(designationParam) ? { designationId: designationParam } : {}),
     q: sp.get('q') ?? '',
     status: parseList(sp.get('status'), employmentStatusSchema),
     employmentType: parseList(sp.get('type'), employmentTypeSchema),
@@ -81,6 +86,7 @@ export function filtersToSearchParams(f: DirectoryFilters): URLSearchParams {
   if (f.status.length) p.set('status', f.status.join(','));
   if (f.employmentType.length) p.set('type', f.employmentType.join(','));
   if (f.departmentId) p.set('dept', f.departmentId);
+  if (f.designationId) p.set('desig', f.designationId);
   if (f.manager) {
     p.set('manager', f.manager.id);
     p.set('managerName', f.manager.label);

@@ -9,6 +9,7 @@ import { resetData } from '../../test/integration/seed';
 import { createPrismaClient } from '../client';
 import type { PrismaClient } from '../generated/client';
 import { createIdentityStore } from '../identity';
+import { createTenantRunner } from '../tenant';
 import { assertLocalTarget, defaultSpec, provisionLocal } from './local-provisioning';
 
 /** Real PostgreSQL (hr_test): provisioning as hr_migrator, then the real app as hr_app. */
@@ -21,6 +22,8 @@ const appFor = (companyId: string) =>
   createApp({
     authProvider: new DevAuthProvider(companyId),
     resolveMembership: (i) => createIdentityStore(prisma).resolveActiveMembership(i),
+    // Company settings for /me come from the scratch database too, never from the DATABASE_URL in `.env`.
+    tenantRunner: createTenantRunner(prisma),
   });
 
 const counts = async () => {

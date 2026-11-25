@@ -15,6 +15,7 @@ import { describeError, isApiError } from '../errors';
 import { formatDay, formatTimestamp, fullName, TYPE_LABEL } from '../format';
 import { useEmployee } from '../hooks/use-employees';
 import { useEmployeesContext } from '../state/employees-context';
+import { ActivityTimeline, InvitePanel, MyContactForm } from './record-sections';
 import { StatusBadge } from './status-badge';
 import { StatusChangePanel } from './status-change-panel';
 
@@ -52,7 +53,7 @@ export interface EmployeeProfileProps {
 }
 
 export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChanged }: EmployeeProfileProps) {
-  const { caps, session } = useEmployeesContext();
+  const { caps, session, service } = useEmployeesContext();
   const query = useEmployee(id);
 
   if (query.status === 'loading' || query.status === 'idle') {
@@ -93,6 +94,16 @@ export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChange
   const e = query.data as Employee;
   const name = fullName(e);
   const isSelf = session.employeeId === e.id;
+  // Timeline, own contact details and invitations exist only on the real API, not in the demo adapter.
+  const live = service.kind === 'http';
+  const may = (p: Parameters<typeof session.permissions.includes>[0]) => session.permissions.includes(p);
+  // The API returns these private fields only to HR, Super Admin and the owner.
+  const seesPrivate = caps.readAll || isSelf;
+  const changed = () => {
+    query.reload();
+    onChanged?.();
+  };
+  const wide = embedded ? undefined : 'lg:col-span-2';
 
   return (
     <article aria-label={`Profile of ${name}`} className="flex flex-col">
@@ -172,6 +183,7 @@ export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChange
                 dash
               )}
             </Item>
+            {e.designation ? <Item label="Designation">{e.designation.name}</Item> : null}
             <Item label="Hire date">{formatDay(e.hireDate)}</Item>
             <Item label="Termination date">{formatDay(e.terminationDate)}</Item>
           </dl>
@@ -188,6 +200,15 @@ export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChange
                 dash
               )}
             </Item>
+            {!live ? null : seesPrivate ? (
+              <>
+                <Item label="Phone">{e.phone || dash}</Item>
+                <Item label="Address">{e.address || dash}</Item>
+                <Item label="Emergency contact">{e.emergencyContact || dash}</Item>
+              </>
+            ) : e.phone ? (
+              <Item label="Phone">{e.phone}</Item>
+            ) : null}
             <Item label="Employee number">{e.employeeNumber}</Item>
             <Item label="Created">{formatTimestamp(e.createdAt)}</Item>
             <Item label="Last updated">{formatTimestamp(e.updatedAt)}</Item>
@@ -195,16 +216,30 @@ export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChange
         </Card>
 
         {caps.canChangeStatus ? (
-          <div className={embedded ? undefined : 'lg:col-span-2'}>
+          <div className={wide}>
             <Card title="Employment status">
-              <StatusChangePanel
-                key={`${e.status}:${e.terminationDate}`}
-                employee={e}
-                onChanged={() => {
-                  query.reload();
-                  onChanged?.();
-                }}
-              />
+              <StatusChangePanel key={`${e.status}:${e.terminationDate}`} employee={e} onChanged={changed} />
+            </Card>
+          </div>
+        ) : null}
+        {live && isSelf && may('employee:self:edit') ? (
+          <div className={wide}>
+            <Card title="My contact details">
+              <MyContactForm key={e.updatedAt} employee={e} onSaved={changed} />
+            </Card>
+          </div>
+        ) : null}
+        {live && may('employee:invite') && e.status !== 'INACTIVE' && e.status !== 'TERMINATED' ? (
+          <div className={wide}>
+            <Card title="Login access">
+              <InvitePanel employee={e} session={session} onInvited={changed} />
+            </Card>
+          </div>
+        ) : null}
+        {live && !embedded ? (
+          <div className={wide}>
+            <Card title="Activity">
+              <ActivityTimeline id={e.id} version={e.updatedAt} />
             </Card>
           </div>
         ) : null}

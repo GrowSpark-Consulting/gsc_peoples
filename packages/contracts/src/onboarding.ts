@@ -63,3 +63,23 @@ export const updateOnboardingTemplateTaskSchema = z.object({
   isActive: z.boolean().optional(),
 }).strict().refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to change' });
 export const onboardingTemplateListResponseSchema = z.object({ data: z.array(onboardingTemplateTaskSchema) });
+
+// ONB-004 / ONB-005: company-wide onboarding list ------------------------------------------------------------
+
+export const onboardingProgressListQuerySchema = z.object({
+  status: onboardingStatusSchema.optional(),
+  search: z.string().trim().min(1).max(100).optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+}).strict();
+export const onboardingProgressListResponseSchema = z.object({
+  data: z.array(z.object({
+    employeeId: z.uuid(),
+    employeeNumber: z.string(),
+    name: z.string(),
+    employeeStatus: z.string(),
+    invitationStatus: z.enum(['NOT_INVITED', 'INVITED', 'ACTIVATED']),
+    progress: onboardingProgressSchema,
+  })),
+  page: z.object({ page: z.number().int(), pageSize: z.number().int(), total: z.number().int() }),
+});

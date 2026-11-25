@@ -8,7 +8,7 @@ import {
   type onboardingTemplateTaskSchema,
 } from '@gsc/contracts';
 import { Plus, Send } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import type { z } from 'zod';
 import { PageHeader } from '@/components/layout/page-header';
 import { ErrorState, NoResultsState } from '@/components/shared/data-states';
@@ -20,6 +20,7 @@ import { Dialog } from '@/components/ui/dialog';
 import { Drawer } from '@/components/ui/drawer';
 import { EmptyState } from '@/components/ui/empty-state';
 import { Field } from '@/components/ui/field';
+import { CursorPagination } from '@/components/ui/pagination';
 import { SelectField } from '@/components/ui/select';
 import {
   Table,
@@ -36,6 +37,7 @@ import { hasAny, hasPermission, PERMISSIONS } from '@/hooks/use-session';
 import { describeApiError } from '@/lib/api-client';
 import { formatDay, formatTimestamp } from '@/modules/employees/format';
 import { useAsyncData } from '@/modules/employees/hooks/use-async-data';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import type { Session } from '@/modules/employees/permissions';
 import { QueryBoundary, Section, SessionGate } from '@/modules/shared/page-state';
 import { Tabs } from '@/modules/shared/tabs';
@@ -46,7 +48,8 @@ import {
   deleteTemplateTask,
   getChecklist,
   inviteEmployee,
-  listOnboardingEmployees,
+  listOnboardingProgress,
+  PAGE_SIZE,
   listTemplate,
   updateTask,
   updateTemplateTask,
@@ -112,45 +115,20 @@ function HrView({ session }: { session: Session }) {
   );
 }
 
-interface Row {
-  id: string;
-  name: string;
-  number: string;
-  invitation?: 'NOT_INVITED' | 'INVITED' | 'ACTIVATED';
-  progress: Progress | undefined;
-}
-
-/** One request per onboarding employee (no list endpoint exists yet); a failed checklist does not hide the row. */
-async function loadRows(): Promise<Row[]> {
-  const employees = await listOnboardingEmployees();
-  return Promise.all(
-    employees.map(async (e) => {
-      const c = await getChecklist(e.id).catch(() => undefined);
-      return {
-        id: e.id,
-        name: `${e.firstName} ${e.lastName}`,
-        number: e.employeeNumber,
-        invitation: e.invitationStatus,
-        progress: c?.progress,
-      };
-    }),
-  );
-}
-
 function EmployeesTab({ session }: { session: Session }) {
-  const q = useAsyncData('onb:rows', loadRows);
   const [search, setSearch] = useState('');
-  const [status, setStatus] = useState('');
-  const [open, setOpen] = useState<Row | null>(null);
+  const [status, setStatus] = useState<Progress['status'] | ''>('');
+  const [page, setPage] = useState(1);
+  const term = useDebouncedValue(search.trim(), 300);
+  const q = useAsyncData(`onb:rows:${status}:${term}:${page}`, () =>
+    listOnboardingProgress({ status: status || undefined, search: term || undefined, page }),
+  );
+  const [open, setOpen] = useState<{ id: string; name: string } | null>(null);
   const canInvite = hasAny(session, PERMISSIONS.EMPLOYEE_INVITE, PERMISSIONS.USER_ACCOUNT_MANAGE);
   const invite = useAction(inviteEmployee);
-
-  const rows = useMemo(() => {
-    const s = search.trim().toLowerCase();
-    return (q.data ?? []).filter(
-      (r) => (!s || r.name.toLowerCase().includes(s) || r.number.toLowerCase().includes(s)) && (!status || r.progress?.status === status),
-    );
-  }, [q.data, search, status]);
+  const rows = q.data?.data ?? [];
+  const total = q.data?.page.total ?? 0;
+  const filtered = Boolean(status || term);
 
   async function sendInvite(id: string) {
     const r = await invite.run(id);
@@ -161,12 +139,23 @@ function EmployeesTab({ session }: { session: Session }) {
     <>
       <ListToolbar
         label="Onboarding filters"
-        search={{ value: search, onChange: setSearch, label: 'Search employees', placeholder: 'Search by name or ID' }}
+        search={{
+          value: search,
+          onChange: (v) => {
+            setSearch(v);
+            setPage(1);
+          },
+          label: 'Search employees',
+          placeholder: 'Search by name or ID',
+        }}
         filters={
           <FilterSelect
             label="Onboarding status"
             value={status}
-            onChange={setStatus}
+            onChange={(v) => {
+              setStatus(v as Progress['status'] | '');
+              setPage(1);
+            }}
             allLabel="All statuses"
             options={Object.entries(STATUS_LABEL).map(([value, label]) => ({ value, label }))}
           />
@@ -191,25 +180,25 @@ function EmployeesTab({ session }: { session: Session }) {
               <TableSkeleton columns={5} />
             ) : rows.length === 0 ? (
               <TableEmpty colSpan={5}>
-                {(q.data ?? []).length === 0 ? (
+                {!filtered ? (
                   <EmptyState title="Nobody is onboarding" description="New employees appear here until HR marks them Active." />
                 ) : (
-                  <NoResultsState noun="employees" onClear={() => { setSearch(''); setStatus(''); }} />
+                  <NoResultsState noun="employees" onClear={() => { setSearch(''); setStatus(''); setPage(1); }} />
                 )}
               </TableEmpty>
             ) : (
               rows.map((r) => (
-                <TableRow key={r.id}>
-                  <TableCell>{r.name}<span className="block text-small text-muted">{r.number}</span></TableCell>
-                  <TableCell>{r.progress ? `${r.progress.completed} of ${r.progress.total} · ${Math.round(r.progress.percentage)}%` : '—'}</TableCell>
-                  <TableCell>{r.progress ? <Badge variant={STATUS_VARIANT[r.progress.status]}>{STATUS_LABEL[r.progress.status]}</Badge> : '—'}</TableCell>
-                  <TableCell>{r.invitation ? INVITE_LABEL[r.invitation] : '—'}</TableCell>
+                <TableRow key={r.employeeId}>
+                  <TableCell>{r.name}<span className="block text-small text-muted">{r.employeeNumber}</span></TableCell>
+                  <TableCell>{`${r.progress.completed} of ${r.progress.total} · ${Math.round(r.progress.percentage)}%`}</TableCell>
+                  <TableCell><Badge variant={STATUS_VARIANT[r.progress.status]}>{STATUS_LABEL[r.progress.status]}</Badge></TableCell>
+                  <TableCell>{INVITE_LABEL[r.invitationStatus]}</TableCell>
                   <TableCell align="right">
                     <div className="flex justify-end gap-2">
-                      <Button size="sm" variant="secondary" onClick={() => setOpen(r)}>Checklist</Button>
-                      {canInvite && r.invitation !== 'ACTIVATED' ? (
-                        <Button size="sm" variant="secondary" icon={<Send aria-hidden />} loading={invite.pending} onClick={() => sendInvite(r.id)}>
-                          {r.invitation === 'INVITED' ? 'Resend invite' : 'Invite'}
+                      <Button size="sm" variant="secondary" onClick={() => setOpen({ id: r.employeeId, name: r.name })}>Checklist</Button>
+                      {canInvite && r.invitationStatus !== 'ACTIVATED' ? (
+                        <Button size="sm" variant="secondary" icon={<Send aria-hidden />} loading={invite.pending} onClick={() => sendInvite(r.employeeId)}>
+                          {r.invitationStatus === 'INVITED' ? 'Resend invite' : 'Invite'}
                         </Button>
                       ) : null}
                     </div>
@@ -220,6 +209,19 @@ function EmployeesTab({ session }: { session: Session }) {
           </TableBody>
         </Table>
       )}
+      {q.status === 'success' && total > PAGE_SIZE ? (
+        <div className="mt-4">
+          <CursorPagination
+            page={page}
+            count={rows.length}
+            hasPrevious={page > 1}
+            hasNext={page * PAGE_SIZE < total}
+            onPrevious={() => setPage((p) => Math.max(1, p - 1))}
+            onNext={() => setPage((p) => p + 1)}
+            noun="employees"
+          />
+        </div>
+      ) : null}
       <Drawer open={open !== null} onClose={() => { setOpen(null); q.reload(); }} title={open ? `${open.name} · checklist` : 'Checklist'} size="lg">
         {open ? <Checklist employeeId={open.id} session={session} /> : null}
       </Drawer>
