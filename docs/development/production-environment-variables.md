@@ -12,7 +12,7 @@ Date: 2026-11-25. Source of truth: every `process.env` read in the repository (`
 | Variable | Value in production | Required | Secret | Notes |
 |---|---|---|---|---|
 | `NODE_ENV` | `production` | yes | no | Secure cookies, generic 500 messages, no development tokens in responses, extra startup checks |
-| `NODE_VERSION` | `22` | yes | no | Render runtime selector |
+| `NODE_VERSION` | `22.23.5` | yes | no | Render runtime selector (pinned Node 22 LTS) |
 | `AUTH_MODE` | `session` | yes | no | `development` refuses to start; `sso` is not configured |
 | `DB_TARGET` | `supabase` | yes | no | default is `local` |
 | `SUPABASE_DATABASE_URL` | `postgresql://hr_app.<project-ref>:<password>@<session-pooler-host>:5432/postgres?schema=hr` | yes | **yes** | runtime role only. Percent-encode reserved characters in the password |

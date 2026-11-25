@@ -94,31 +94,38 @@ function resolveApiUrl(env: {
   NODE_ENV?: string;
 }): string | undefined {
   const production = env.NODE_ENV === 'production';
+  const renderApiUrl = env.RENDER_API_URL?.replace(/\/+$/, '');
   return (
-    env.RENDER_API_URL?.replace(/\/+$/, '') ??
-    (env.NEXT_PUBLIC_API_URL?.startsWith('http') ? env.NEXT_PUBLIC_API_URL : undefined) ??
+    (renderApiUrl ? (renderApiUrl.endsWith('/api/v1') ? renderApiUrl : `${renderApiUrl}/api/v1`) : undefined) ??
+    (env.NEXT_PUBLIC_API_URL?.startsWith('http') ? env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '') : undefined) ??
     (production ? undefined : 'http://localhost:4000/api/v1')
   );
 }
 
 describe('proxy.ts apiUrl resolution', () => {
-  it('prefers RENDER_API_URL in same-origin production', () => {
+  it('prefers RENDER_API_URL in same-origin production and appends /api/v1', () => {
     expect(
       resolveApiUrl({
         RENDER_API_URL: 'https://gsc-peoples-api.onrender.com',
         NEXT_PUBLIC_API_URL: '/api/v1',
         NODE_ENV: 'production',
       }),
-    ).toBe('https://gsc-peoples-api.onrender.com');
+    ).toBe('https://gsc-peoples-api.onrender.com/api/v1');
   });
 
-  it('strips trailing slash from RENDER_API_URL', () => {
+  it('strips trailing slash from RENDER_API_URL and does not double /api/v1', () => {
     expect(
       resolveApiUrl({
         RENDER_API_URL: 'https://gsc-peoples-api.onrender.com/',
         NODE_ENV: 'production',
       }),
-    ).toBe('https://gsc-peoples-api.onrender.com');
+    ).toBe('https://gsc-peoples-api.onrender.com/api/v1');
+    expect(
+      resolveApiUrl({
+        RENDER_API_URL: 'https://gsc-peoples-api.onrender.com/api/v1/',
+        NODE_ENV: 'production',
+      }),
+    ).toBe('https://gsc-peoples-api.onrender.com/api/v1');
   });
 
   it('falls back to absolute NEXT_PUBLIC_API_URL in cross-origin production (no RENDER_API_URL)', () => {

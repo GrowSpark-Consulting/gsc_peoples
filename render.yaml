@@ -22,12 +22,12 @@ services:
     plan: starter # paid: no spin-down. Keep ONE instance (in-memory rate limiter, see docs)
     branch: main
     autoDeployTrigger: "off" # deploy manually until release approval
-    buildCommand: corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @gsc/api db:generate && pnpm --filter @gsc/api build
-    startCommand: pnpm --filter @gsc/api start
+    buildCommand: corepack pnpm install --frozen-lockfile --prod=false && corepack pnpm --filter @gsc/api db:generate && corepack pnpm --filter @gsc/api build
+    startCommand: corepack pnpm --filter @gsc/api start
     healthCheckPath: /api/v1/health # liveness: stays 200 during a database outage so Render does not restart-loop; readiness is /api/v1/health/ready
     envVars:
       - key: NODE_VERSION
-        value: "22"
+        value: "22.23.5"
       - key: NODE_ENV
         value: production
       - key: AUTH_MODE

@@ -27,11 +27,11 @@ reported as unknown (the Blueprint has not been synced against Render yet).
 | Branch / root directory | `main`, repository root (the lockfile and `packages/*` are needed) |
 | Region | Singapore (Render has no India region; the database is in Mumbai) |
 | Plan / instances | paid (no spin-down), **exactly one instance**: rate limits and the login counter live in memory |
-| Build command | `corepack enable && pnpm install --frozen-lockfile --prod=false && pnpm --filter @gsc/api db:generate && pnpm --filter @gsc/api build` |
-| Start command | `pnpm --filter @gsc/api start` (`node dist/server.js` in `apps/api`) |
+| Build command | `corepack pnpm install --frozen-lockfile --prod=false && corepack pnpm --filter @gsc/api db:generate && corepack pnpm --filter @gsc/api build` |
+| Start command | `corepack pnpm --filter @gsc/api start` (`node dist/server.js` in `apps/api`) |
 | Pre-deploy command | empty. Migrations are never run by Render |
 | Health check path | `/api/v1/health` |
-| Node | `NODE_VERSION=22`; pnpm 10.34.9 from `packageManager` through corepack |
+| Node | `NODE_VERSION=22.23.5` (pinned Node 22 LTS); pnpm 10.34.9 from `packageManager` through `corepack pnpm` |
 | Auto-deploy | off until release approval |
 
 `--prod=false` is required: with `NODE_ENV=production` pnpm would skip `tsup` and `prisma`. `db:generate` needs no

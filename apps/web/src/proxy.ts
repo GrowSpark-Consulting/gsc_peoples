@@ -51,9 +51,10 @@ export async function proxy(req: NextRequest) {
   // Next.js middleware runs in the Edge Runtime: there is no localhost to resolve a relative URL against.
   // RENDER_API_URL is the authoritative server-side-only target; NEXT_PUBLIC_API_URL is used only as a
   // fallback for local development (where it is already an absolute http://localhost URL).
+  const renderApiUrl = process.env.RENDER_API_URL?.replace(/\/+$/, '');
   const apiUrl =
-    process.env.RENDER_API_URL?.replace(/\/+$/, '') ??
-    (process.env.NEXT_PUBLIC_API_URL?.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL : undefined) ??
+    (renderApiUrl ? (renderApiUrl.endsWith('/api/v1') ? renderApiUrl : `${renderApiUrl}/api/v1`) : undefined) ??
+    (process.env.NEXT_PUBLIC_API_URL?.startsWith('http') ? process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '') : undefined) ??
     (production ? undefined : 'http://localhost:4000/api/v1');
   if (!apiUrl) return unavailable();
 
@@ -62,7 +63,7 @@ export async function proxy(req: NextRequest) {
 
   let status: number;
   try {
-    const res = await fetch(`${apiUrl.replace(/\/+$/, '')}/me`, {
+    const res = await fetch(`${apiUrl}/me`, {
       headers: { cookie: `${SESSION_COOKIE}=${encodeURIComponent(session)}`, accept: 'application/json' },
       cache: 'no-store',
     });
