@@ -1,6 +1,6 @@
 import net from 'node:net';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createMailer, createSmtpMailer, disabledMailer, invitationEmail, passwordResetEmail } from './index';
+import { createHttpMailer, createMailer, createSmtpMailer, disabledMailer, invitationEmail, passwordResetEmail } from './index';
 
 /** A minimal SMTP server on a local port: speaks just enough of the protocol to receive one message. */
 async function fakeSmtp(options: { rejectRecipient?: boolean } = {}) {
@@ -80,12 +80,51 @@ describe('SMTP mailer', () => {
 });
 
 describe('mailer selection', () => {
-  const base = { NODE_ENV: 'test' as const, SMTP_PORT: 587, SMTP_SECURE: false, SMTP_HOST: undefined, SMTP_USER: undefined, SMTP_PASSWORD: undefined, MAIL_FROM: undefined };
-  it('is disabled unless smtp is chosen, and a disabled mailer never pretends to send', async () => {
+  const base = { NODE_ENV: 'test' as const, MAIL_API_KEY: undefined, SMTP_PORT: 587, SMTP_SECURE: false, SMTP_HOST: undefined, SMTP_USER: undefined, SMTP_PASSWORD: undefined, MAIL_FROM: undefined };
+  it('is disabled unless smtp, resend or brevo is chosen, and a disabled mailer never pretends to send', async () => {
     expect(createMailer({ ...base, MAIL_DRIVER: undefined }).driver).toBe('disabled');
     await expect(disabledMailer.send({ to: 'a@b.co', subject: 's', text: 't' })).rejects.toThrow(/not configured/);
   });
-  it('builds the smtp driver from the configuration', () => {
+  it('builds the smtp, resend and brevo drivers from the configuration', () => {
     expect(createMailer({ ...base, MAIL_DRIVER: 'smtp', SMTP_HOST: 'smtp.example.com', MAIL_FROM: 'a@example.com' }).driver).toBe('smtp');
+    expect(createMailer({ ...base, MAIL_DRIVER: 'resend', MAIL_API_KEY: 're_123', MAIL_FROM: 'a@example.com' }).driver).toBe('resend');
+    expect(createMailer({ ...base, MAIL_DRIVER: 'brevo', MAIL_API_KEY: 'xkeysib_123', MAIL_FROM: 'a@example.com' }).driver).toBe('brevo');
+  });
+});
+
+describe('HTTPS email API mailer', () => {
+  it('sends via Resend API and Brevo API without exposing recipient on HTTP error', async () => {
+    const calls: { url: string; init: RequestInit }[] = [];
+    const okFetch = (async (url: string, init: RequestInit) => {
+      calls.push({ url, init });
+      return new Response('{}', { status: 200 });
+    }) as unknown as typeof fetch;
+
+    await createHttpMailer({ driver: 'resend', apiKey: 're_secret', from: 'GSC Peoples <hr@example.com>', fetchImpl: okFetch }).send({
+      to: 'person@example.com',
+      subject: 'Invite',
+      text: 'Hello',
+    });
+    expect(calls[0]!.url).toBe('https://api.resend.com/emails');
+    expect((calls[0]!.init.headers as Record<string, string>).Authorization).toBe('Bearer re_secret');
+
+    await createHttpMailer({ driver: 'brevo', apiKey: 'xkeysib_secret', from: 'GSC Peoples <hr@example.com>', fetchImpl: okFetch }).send({
+      to: 'person@example.com',
+      subject: 'Invite',
+      text: 'Hello',
+    });
+    expect(calls[1]!.url).toBe('https://api.brevo.com/v3/smtp/email');
+    expect((calls[1]!.init.headers as Record<string, string>)['api-key']).toBe('xkeysib_secret');
+    expect(JSON.parse(String(calls[1]!.init.body))).toMatchObject({
+      sender: { name: 'GSC Peoples', email: 'hr@example.com' },
+      to: [{ email: 'person@example.com' }],
+    });
+
+    const failFetch = (async () => new Response('bad person@example.com', { status: 401 })) as unknown as typeof fetch;
+    const err = await createHttpMailer({ driver: 'brevo', apiKey: 'bad', from: 'hr@example.com', fetchImpl: failFetch })
+      .send({ to: 'person@example.com', subject: 's', text: 't' })
+      .then(() => null, (e: Error) => e);
+    expect(err?.name).toBe('MailError');
+    expect(err?.message).toBe('Email could not be sent (HTTP 401)');
   });
 });

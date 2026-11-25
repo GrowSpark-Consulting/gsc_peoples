@@ -13,7 +13,7 @@ export interface MailMessage {
 }
 
 export interface Mailer {
-  readonly driver: 'disabled' | 'smtp' | 'memory';
+  readonly driver: 'disabled' | 'smtp' | 'resend' | 'brevo' | 'memory';
   /** Resolves when the message has been accepted by the mail server. Throws `MailError` otherwise. */
   send(message: MailMessage): Promise<void>;
 }

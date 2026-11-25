@@ -106,6 +106,8 @@ describe('development auth gating (production safety)', () => {
     expect(() => parseEnv(without('MAIL_DRIVER'))).toThrow(/MAIL_DRIVER/);
     expect(parseEnv({ ...ok, MAIL_DRIVER: 'disabled' }).MAIL_DRIVER).toBe('disabled');
     for (const key of ['SMTP_HOST', 'MAIL_FROM', 'WEB_APP_URL'] as const) expect(() => parseEnv(without(key))).toThrow(new RegExp(key));
+    expect(() => parseEnv({ ...ok, MAIL_DRIVER: 'brevo' })).toThrow(/MAIL_API_KEY/);
+    expect(parseEnv({ ...ok, MAIL_DRIVER: 'brevo', MAIL_API_KEY: 'xkeysib_test' }).MAIL_DRIVER).toBe('brevo');
     expect(() => parseEnv({ ...ok, WEB_APP_URL: 'http://hr.example.com' })).toThrow(/WEB_APP_URL/);
     // CORS: credentialed requests need exact https origins
     for (const bad of ['*', 'http://hr.example.com', 'https://hr.example.com/', 'https://*.example.com', 'https://a.example.com,*']) {

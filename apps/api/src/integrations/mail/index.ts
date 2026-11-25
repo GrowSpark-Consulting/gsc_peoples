@@ -1,9 +1,11 @@
 import type { Env } from '../../config/env';
+import { createHttpMailer } from './http-mailer';
 import { createSmtpMailer } from './smtp-mailer';
 import { MailError, type Mailer, type MailMessage } from './types';
 
 export * from './types';
 export * from './messages';
+export { createHttpMailer } from './http-mailer';
 export { createSmtpMailer } from './smtp-mailer';
 
 export const disabledMailer: Mailer = {
@@ -23,10 +25,14 @@ export function createMemoryMailer(): Mailer & { outbox: MailMessage[] } {
   };
 }
 
-type MailEnv = Pick<Env, 'NODE_ENV' | 'MAIL_DRIVER' | 'SMTP_HOST' | 'SMTP_PORT' | 'SMTP_SECURE' | 'SMTP_USER' | 'SMTP_PASSWORD' | 'MAIL_FROM'>;
+type MailEnv = Pick<Env, 'NODE_ENV' | 'MAIL_DRIVER' | 'MAIL_API_KEY' | 'SMTP_HOST' | 'SMTP_PORT' | 'SMTP_SECURE' | 'SMTP_USER' | 'SMTP_PASSWORD' | 'MAIL_FROM'>;
 
-/** Builds the configured mailer. The env schema already guarantees the smtp variables are present. */
+/** Builds the configured mailer. The env schema already guarantees the driver variables are present. */
 export function createMailer(env: MailEnv): Mailer {
+  if (env.MAIL_DRIVER === 'resend' || env.MAIL_DRIVER === 'brevo') {
+    if (!env.MAIL_API_KEY || !env.MAIL_FROM) throw new Error(`${env.MAIL_DRIVER} mail is not configured`);
+    return createHttpMailer({ driver: env.MAIL_DRIVER, apiKey: env.MAIL_API_KEY, from: env.MAIL_FROM });
+  }
   if (env.MAIL_DRIVER !== 'smtp') return disabledMailer;
   if (!env.SMTP_HOST || !env.MAIL_FROM) throw new Error('SMTP is not configured');
   return createSmtpMailer({

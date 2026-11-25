@@ -70,7 +70,9 @@ const envSchema = z
      * `disabled` runs without email: invitations answer 503 and reset requests send nothing.
      * Production must choose explicitly, so a deployment can never silently drop invitation links.
      */
-    MAIL_DRIVER: z.preprocess(emptyToUndefined, z.enum(['disabled', 'smtp']).optional()),
+    MAIL_DRIVER: z.preprocess(emptyToUndefined, z.enum(['disabled', 'smtp', 'resend', 'brevo']).optional()),
+    /** API key when MAIL_DRIVER is `resend` or `brevo` (HTTPS port 443, works on Render Free tier). */
+    MAIL_API_KEY: optionalString,
     SMTP_HOST: optionalString,
     SMTP_PORT: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(65535).default(587)),
     /** true = TLS from the first byte (port 465); false = STARTTLS (required in production). */
@@ -140,6 +142,14 @@ const envSchema = z
     if (env.MAIL_DRIVER === 'smtp') {
       for (const k of ['SMTP_HOST', 'MAIL_FROM', 'WEB_APP_URL'] as const) {
         if (!env[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when MAIL_DRIVER=smtp` });
+      }
+      if (env.NODE_ENV === 'production' && env.WEB_APP_URL && !env.WEB_APP_URL.startsWith('https://')) {
+        ctx.addIssue({ code: 'custom', path: ['WEB_APP_URL'], message: 'WEB_APP_URL must be https when NODE_ENV=production' });
+      }
+    }
+    if (env.MAIL_DRIVER === 'resend' || env.MAIL_DRIVER === 'brevo') {
+      for (const k of ['MAIL_API_KEY', 'MAIL_FROM', 'WEB_APP_URL'] as const) {
+        if (!env[k]) ctx.addIssue({ code: 'custom', path: [k], message: `${k} is required when MAIL_DRIVER=${env.MAIL_DRIVER}` });
       }
       if (env.NODE_ENV === 'production' && env.WEB_APP_URL && !env.WEB_APP_URL.startsWith('https://')) {
         ctx.addIssue({ code: 'custom', path: ['WEB_APP_URL'], message: 'WEB_APP_URL must be https when NODE_ENV=production' });
