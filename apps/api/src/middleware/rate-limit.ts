@@ -12,6 +12,12 @@ export interface RateLimitOptions {
   now?: () => number;
   /** Paths (relative to the mount point) that are never limited, e.g. the health check. */
   skip?: (req: Request) => boolean;
+  /**
+   * Responses that are given back to the counter when they finish, e.g. 5xx: a request the server failed to handle
+   * (database outage, timeout) must not use up the client's allowance. The hit is still counted while the request is
+   * in flight, so concurrent requests cannot exceed `max`.
+   */
+  refund?: (statusCode: number) => boolean;
 }
 
 /**
@@ -47,6 +53,13 @@ export function rateLimit(o: RateLimitOptions): RequestHandler & { reset(): void
     if (entry.count > o.max) {
       res.setHeader('Retry-After', String(resetSeconds));
       return next(new AppError(429, 'RATE_LIMITED', 'Too many requests. Try again later.'));
+    }
+    if (o.refund) {
+      const counted = entry;
+      res.once('finish', () => {
+        // Only within the same window; an expired or swept entry is left alone.
+        if (o.refund!(res.statusCode) && hits.get(key) === counted && counted.count > 0) counted.count -= 1;
+      });
     }
     next();
   };

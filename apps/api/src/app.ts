@@ -93,7 +93,8 @@ export function createApp(deps: AppDependencies = {}): Express {
   if (env.NODE_ENV !== 'test') {
     // Per client IP (req.ip honours TRUST_PROXY_HOPS). The per-account login counter in auth.routes stays on top.
     api.use(rateLimit({ windowMs: 60_000, max: env.RATE_LIMIT_PER_MINUTE }));
-    api.use('/auth', rateLimit({ windowMs: 15 * 60_000, max: env.AUTH_RATE_LIMIT_PER_15_MIN, skip: (r) => r.method === 'GET' || r.path === '/logout' }));
+    // 5xx (database unavailable, timeouts) is refunded: an outage must not exhaust a client's login allowance.
+    api.use('/auth', rateLimit({ windowMs: 15 * 60_000, max: env.AUTH_RATE_LIMIT_PER_15_MIN, skip: (r) => r.method === 'GET' || r.path === '/logout', refund: (status) => status >= 500 }));
   }
   const documentStorage = deps.documentStorage ?? createDocumentStorage(env);
   // Local-driver (development) download links carry their own 60-second HMAC authorisation, like a Supabase

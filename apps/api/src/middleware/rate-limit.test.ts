@@ -62,4 +62,26 @@ describe('rateLimit', () => {
     expect((await request(a).post('/login').send({ email: 'a@x.test' })).status).toBe(429);
     expect((await request(a).post('/login').send({ email: 'b@x.test' })).status).toBe(200);
   });
+
+  it('refunds responses selected by `refund` (5xx): a server failure does not use up the allowance', async () => {
+    const a = express();
+    let fail = true;
+    a.use('/api', rateLimit({ windowMs: 60_000, max: 2, refund: (status) => status >= 500 }));
+    a.post('/api/login', (_req, res) => void (fail ? res.status(503).json({}) : res.status(401).json({})));
+    for (let i = 0; i < 10; i += 1) expect((await request(a).post('/api/login')).status).toBe(503); // outage retries
+    fail = false;
+    expect((await request(a).post('/api/login')).status).toBe(401); // still the full allowance
+    expect((await request(a).post('/api/login')).status).toBe(401);
+    expect((await request(a).post('/api/login')).status).toBe(429); // 4xx keeps counting
+  });
+
+  it('a refunded limiter still caps concurrent in-flight requests at `max`', async () => {
+    const a = express();
+    a.use('/api', rateLimit({ windowMs: 60_000, max: 3, refund: (status) => status >= 500 }));
+    a.post('/api/slow', (_req, res) => void setTimeout(() => res.status(503).json({}), 50));
+    a.use(errorHandler);
+    const statuses = (await Promise.all(Array.from({ length: 6 }, () => request(a).post('/api/slow')))).map((r) => r.status);
+    expect(statuses.filter((s) => s === 429)).toHaveLength(3);
+  });
 });
+

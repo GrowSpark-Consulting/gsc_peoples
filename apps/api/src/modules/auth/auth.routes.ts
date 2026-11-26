@@ -16,25 +16,43 @@ const resetRequestSchema = z.object({ email: z.email(), companyId: z.string().uu
 const resetSchema = z.object({ token: z.string().min(32).max(256), password: z.string().min(10).max(128) }); // PRD AUTH-002: 10+ characters
 const invitationSchema = z.object({ token: z.string().min(32).max(256), password: z.string().min(10).max(128), name: z.string().trim().min(1).max(200).optional() });
 
-/** PRD section 5: 5 failed logins per 15 minutes. Process-local: one API instance is the supported topology. */
+/**
+ * PRD section 5: 5 failed logins per 15 minutes per client IP + normalized email. Process-local: one API instance is
+ * the supported topology.
+ *
+ * Only a credential decision counts. An attempt is reserved synchronously before any database work, so concurrent
+ * requests cannot all slip past the limit while their password checks are in flight. The reservation is then kept
+ * when the credentials were wrong, cleared when they were right, and given back when the request ended without a
+ * credential decision (database unavailable, timeout, or any other server error): an outage must not lock out
+ * legitimate users who retry.
+ */
 const MAX_FAILURES = 5;
 const FAILURE_WINDOW_MS = 15 * 60 * 1000;
-const failures = new Map<string, { count: number; resetAt: number }>();
+type FailureEntry = { count: number; resetAt: number };
+const failures = new Map<string, FailureEntry>();
 let lastSweep = Date.now();
 
-function checkRateLimit(key: string) {
+/** Reserves one attempt for `key` or throws when the limit is reached. Returns a function that gives it back. */
+function reserveAttempt(key: string): () => void {
   const now = Date.now();
   if (now - lastSweep > FAILURE_WINDOW_MS) {
     for (const [k, v] of failures) if (v.resetAt <= now) failures.delete(k);
     lastSweep = now;
   }
-  const entry = failures.get(key);
+  let entry = failures.get(key);
   if (!entry || entry.resetAt <= now) {
-    failures.set(key, { count: 1, resetAt: now + FAILURE_WINDOW_MS });
-    return;
+    entry = { count: 0, resetAt: now + FAILURE_WINDOW_MS };
+    failures.set(key, entry);
   }
   if (entry.count >= MAX_FAILURES) throw new UnauthorizedError('Too many login attempts. Try again later.');
   entry.count += 1;
+  const reserved = entry;
+  return () => {
+    // Only the window this attempt was counted in; a success (clearFailures) or a new window makes this a no-op.
+    if (failures.get(key) !== reserved || reserved.count === 0) return;
+    reserved.count -= 1;
+    if (reserved.count === 0) failures.delete(key);
+  };
 }
 
 function clearFailures(key: string) {
@@ -54,10 +72,12 @@ function setSessionCookies(res: Response, sessionToken: string, csrfToken: strin
   res.cookie('gsc_csrf', csrfToken, { httpOnly: false, secure, sameSite: 'lax', maxAge: SESSION_MS, path: '/', ...(domain ? { domain } : {}) });
 }
 
+/** Same attributes as when the cookies were set, so the browser matches and removes exactly those cookies. */
 function clearSessionCookies(res: Response) {
+  const secure = env.NODE_ENV === 'production';
   const domain = env.COOKIE_DOMAIN;
-  res.clearCookie('gsc_session', { path: '/', ...(domain ? { domain } : {}) });
-  res.clearCookie('gsc_csrf', { path: '/', ...(domain ? { domain } : {}) });
+  res.clearCookie('gsc_session', { httpOnly: true, secure, sameSite: 'lax', path: '/', ...(domain ? { domain } : {}) });
+  res.clearCookie('gsc_csrf', { httpOnly: false, secure, sameSite: 'lax', path: '/', ...(domain ? { domain } : {}) });
 }
 
 async function createSession(prisma: PrismaClient, userId: string, companyId: string, res: Response) {
@@ -95,42 +115,50 @@ export function createAuthRouter(prisma: PrismaClient, options: AuthRouterOption
   router.post('/login', async (req, res) => {
     const parsed = loginSchema.safeParse(req.body);
     if (!parsed.success) throw new ValidationError('Invalid login fields', parsed.error.flatten());
+    const { password, companyId, roleKey } = parsed.data;
+    // The counter key uses the normalized email, the same value the user lookup uses: changing the casing or adding
+    // whitespace can never produce a second counter for the same account.
     const email = normalizeEmail(parsed.data.email);
     const key = `${req.ip}:${email}`;
-    checkRateLimit(key);
+    const releaseAttempt = reserveAttempt(key);
+    let credentialsChecked = false;
 
-    const user = await prisma.user.findFirst({
-      where: { email },
-      include: { memberships: { where: { status: 'ACTIVE' }, include: { role: true } } },
-    });
-    const passwordOk = await verifyPasswordAsync(parsed.data.password, user?.passwordHash ?? DUMMY_HASH);
-    if (!user || user.status !== 'ACTIVE' || !user.passwordHash || !passwordOk ||
-        (parsed.data.companyId && !user.memberships.some((m) => m.companyId === parsed.data.companyId)) ||
-        // The selected role is only a check against the database role, never a way to choose one.
-        (parsed.data.roleKey && !user.memberships.some((m) => m.role.key === parsed.data.roleKey))) {
-      throw new UnauthorizedError('Invalid email or password');
+    try {
+      const user = await prisma.user.findFirst({
+        where: { email },
+        include: { memberships: { where: { status: 'ACTIVE' }, include: { role: true } } },
+      });
+      const passwordOk = await verifyPasswordAsync(password, user?.passwordHash ?? DUMMY_HASH);
+      credentialsChecked = true;
+      if (!user || user.status !== 'ACTIVE' || !user.passwordHash || !passwordOk ||
+          (companyId && !user.memberships.some((m) => m.companyId === companyId)) ||
+          // The selected role is only a check against the database role, never a way to choose one.
+          (roleKey && !user.memberships.some((m) => m.role.key === roleKey))) {
+        throw new UnauthorizedError('Invalid email or password'); // keeps the reserved attempt
+      }
+      // Correct credentials: the counter resets, whatever happens next (company selection, a database error).
+      clearFailures(key);
+
+      const roleMemberships = roleKey ? user.memberships.filter((m) => m.role.key === roleKey) : user.memberships;
+      const memberships = companyId ? roleMemberships.filter((m) => m.companyId === companyId) : roleMemberships;
+      if (memberships.length !== 1) {
+        throw new ValidationError('Select an active company', { companyId: 'Required when a user belongs to multiple companies' });
+      }
+      const membership = memberships[0];
+      if (!membership) throw new ValidationError('Select an active company');
+
+      await prisma.$transaction(async (tx) => {
+        await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
+        await tx.userSession.deleteMany({ where: { userId: user.id, revokedAt: null, expiresAt: { lte: new Date() } } });
+      });
+      await createSession(prisma, user.id, membership.companyId, res);
+
+      res.json({ data: { userId: user.id, companyId: membership.companyId, roleKey: membership.role.key } });
+    } catch (err) {
+      // No credential decision was reached (database unavailable, timeout, any server error): not a failed login.
+      if (!credentialsChecked) releaseAttempt();
+      throw err;
     }
-
-    const roleMemberships = parsed.data.roleKey
-      ? user.memberships.filter((m) => m.role.key === parsed.data.roleKey)
-      : user.memberships;
-    const memberships = parsed.data.companyId
-      ? roleMemberships.filter((m) => m.companyId === parsed.data.companyId)
-      : roleMemberships;
-    if (memberships.length !== 1) {
-      throw new ValidationError('Select an active company', { companyId: 'Required when a user belongs to multiple companies' });
-    }
-    const membership = memberships[0];
-    if (!membership) throw new ValidationError('Select an active company');
-
-    clearFailures(key);
-    await prisma.$transaction(async (tx) => {
-      await tx.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } });
-      await tx.userSession.deleteMany({ where: { userId: user.id, revokedAt: null, expiresAt: { lte: new Date() } } });
-    });
-    await createSession(prisma, user.id, membership.companyId, res);
-
-    res.json({ data: { userId: user.id, companyId: membership.companyId, roleKey: membership.role.key } });
   });
 
   router.post('/logout', async (req, res) => {
