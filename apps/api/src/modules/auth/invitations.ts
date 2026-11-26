@@ -5,7 +5,7 @@ import type { PrismaClient } from '../../database/generated/client';
 import { INVITATION_TTL_DAYS, invitationEmail, type Mailer } from '../../integrations/mail';
 import { ConflictError, ForbiddenError, NotFoundError, ServiceUnavailableError, ValidationError } from '../../shared/errors';
 import { logger } from '../../shared/utils/logger';
-import { secureToken, tokenHash } from './password';
+import { secureToken, tokenHashAsync } from './password';
 
 /**
  * Account invitation (PRD AUTH-004, W4), the one implementation behind both the employee record and the
@@ -127,7 +127,7 @@ export function createInvitationService(prisma: PrismaClient, config: Invitation
       const token = secureToken();
       const expiresAt = new Date(Date.now() + TTL_MS);
       await tx.invitationToken.create({
-        data: { companyId, userId: membership.userId, membershipId: membership.id, tokenHash: tokenHash(token), expiresAt },
+        data: { companyId, userId: membership.userId, membershipId: membership.id, tokenHash: await tokenHashAsync(token), expiresAt },
       });
       await tx.auditLog.create({
         data: {
@@ -186,11 +186,12 @@ export function createInvitationService(prisma: PrismaClient, config: Invitation
 
     assertDeliverable();
     const token = secureToken();
+    const invitationHash = await tokenHashAsync(token);
     const expiresAt = new Date(Date.now() + TTL_MS);
     const companyName = await prisma.$transaction(async (tx) => {
       await tx.invitationToken.updateMany({ where: { membershipId: membership.id, usedAt: null, revokedAt: null }, data: { revokedAt: new Date() } });
       await tx.invitationToken.create({
-        data: { companyId: input.companyId, userId: membership.userId, membershipId: membership.id, tokenHash: tokenHash(token), expiresAt },
+        data: { companyId: input.companyId, userId: membership.userId, membershipId: membership.id, tokenHash: invitationHash, expiresAt },
       });
       await tx.auditLog.create({
         data: {

@@ -1,6 +1,7 @@
 import { createApp } from './app';
 import { env } from './config/env';
-import { disconnectDatabase } from './database/client';
+import { disconnectDatabase, getPrisma, isDatabaseConfigured } from './database/client';
+import { checkDatabaseConnectivity } from './database/startup';
 import { startBackgroundJobs, stopBackgroundJobs } from './queues';
 import { logger } from './shared/utils/logger';
 
@@ -12,6 +13,8 @@ const server = app.listen(env.API_PORT, env.HOST, () => {
     { host: env.HOST, port: env.API_PORT, env: env.NODE_ENV, auth: env.AUTH_MODE },
     'GSC Peoples API listening',
   );
+  // Warm the pool after the port is open: liveness answers immediately, and a database outage is logged, not fatal.
+  if (isDatabaseConfigured()) void checkDatabaseConnectivity(() => getPrisma().$queryRaw`SELECT 1`, logger);
 });
 
 // Render's load balancer keeps idle connections for 60 s; a Node default of 5 s would close them first and show up

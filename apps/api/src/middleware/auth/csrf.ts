@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import type { PrismaClient } from '../../database/generated/client';
-import { tokenHash } from '../../modules/auth/password';
+import { tokenHashAsync } from '../../modules/auth/password';
 import { ForbiddenError } from '../../shared/errors';
 import { decodeCookieValue } from './cookie-value';
 
@@ -23,12 +23,13 @@ export function requireCsrf(prisma?: PrismaClient): RequestHandler {
     const sessionValue = decodeCookieValue(sessionCookie.slice('gsc_session='.length));
     if (!prisma || csrfHeader !== csrfValue) throw new ForbiddenError('CSRF validation failed');
 
+    const [sessionHash, csrfHash] = await Promise.all([tokenHashAsync(sessionValue), tokenHashAsync(csrfValue)]);
     const session = await prisma.userSession.findUnique({
-      where: { tokenHash: tokenHash(sessionValue) },
+      where: { tokenHash: sessionHash },
       select: { csrfHash: true, revokedAt: true, expiresAt: true },
     });
     if (!session || session.revokedAt || session.expiresAt <= new Date()
-      || session.csrfHash !== tokenHash(csrfValue)) {
+      || session.csrfHash !== csrfHash) {
       throw new ForbiddenError('CSRF validation failed');
     }
     next();

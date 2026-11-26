@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import type { ApiError } from '@gsc/contracts';
 import { env } from '../../config/env';
+import { classifyDatabaseError, DATABASE_RETRY_AFTER_SECONDS, safeDatabaseErrorFields } from '../../database/errors';
 import { AppError, NotFoundError } from '../../shared/errors';
 import { logger } from '../../shared/utils/logger';
 
@@ -23,6 +24,22 @@ export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
 
   const appError = err instanceof AppError ? err : undefined;
   const parse = appError ? undefined : bodyError(err);
+
+  // The database is unreachable, timed out or refused service: a temporary condition, not a bug. 503 + Retry-After
+  // tells clients (and the web proxy) to retry later; the raw driver/Prisma error is logged safely, never returned.
+  const dbFailure = appError || parse ? undefined : classifyDatabaseError(err);
+  if (dbFailure) {
+    logger.error(
+      { event: 'db.unavailable', kind: dbFailure, requestId, method: req.method, path: req.originalUrl.split('?')[0], db: safeDatabaseErrorFields(err) },
+      'Database unavailable',
+    );
+    res.setHeader('Retry-After', String(DATABASE_RETRY_AFTER_SECONDS));
+    const body: ApiError = {
+      error: { code: 'SERVICE_UNAVAILABLE', message: 'The service is temporarily unavailable. Please try again shortly.', requestId },
+    };
+    res.status(503).json(body);
+    return;
+  }
   const statusCode = appError?.statusCode ?? parse?.status ?? 500;
 
   if (statusCode >= 500) logger.error({ err, requestId }, 'Unhandled error');

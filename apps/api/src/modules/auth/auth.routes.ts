@@ -9,7 +9,7 @@ import { UnauthorizedError, ValidationError } from '../../shared/errors';
 import { logger } from '../../shared/utils/logger';
 import { decodeCookieValue } from '../../middleware/auth/cookie-value';
 import { hrUserIds, notify } from '../notifications/notify';
-import { hashPassword, secureToken, tokenHash, verifyPassword } from './password';
+import { hashPassword, hashPasswordAsync, secureToken, tokenHashAsync, verifyPasswordAsync } from './password';
 
 const loginSchema = z.object({ email: z.email(), password: z.string().min(8).max(128), companyId: z.string().uuid().optional(), roleKey: z.enum(['SUPER_ADMIN', 'HR_ADMIN', 'MANAGER', 'EMPLOYEE']).optional() });
 const resetRequestSchema = z.object({ email: z.email(), companyId: z.string().uuid().optional() });
@@ -42,6 +42,7 @@ function clearFailures(key: string) {
 }
 
 // Verified when the account does not exist, so an unknown email costs the same time as a wrong password.
+// Computed once at module load (startup), never per request.
 const DUMMY_HASH = hashPassword(secureToken());
 
 const SESSION_MS = 8 * 60 * 60 * 1000;
@@ -62,13 +63,14 @@ function clearSessionCookies(res: Response) {
 async function createSession(prisma: PrismaClient, userId: string, companyId: string, res: Response) {
   const sessionToken = secureToken();
   const csrfToken = secureToken();
+  const [sessionHash, csrfHash] = await Promise.all([tokenHashAsync(sessionToken), tokenHashAsync(csrfToken)]);
   const now = new Date();
   await prisma.userSession.create({
     data: {
       userId,
       companyId,
-      tokenHash: tokenHash(sessionToken),
-      csrfHash: tokenHash(csrfToken),
+      tokenHash: sessionHash,
+      csrfHash,
       expiresAt: new Date(now.getTime() + SESSION_MS),
       lastActivityAt: now,
     },
@@ -101,7 +103,7 @@ export function createAuthRouter(prisma: PrismaClient, options: AuthRouterOption
       where: { email },
       include: { memberships: { where: { status: 'ACTIVE' }, include: { role: true } } },
     });
-    const passwordOk = verifyPassword(parsed.data.password, user?.passwordHash ?? DUMMY_HASH);
+    const passwordOk = await verifyPasswordAsync(parsed.data.password, user?.passwordHash ?? DUMMY_HASH);
     if (!user || user.status !== 'ACTIVE' || !user.passwordHash || !passwordOk ||
         (parsed.data.companyId && !user.memberships.some((m) => m.companyId === parsed.data.companyId)) ||
         // The selected role is only a check against the database role, never a way to choose one.
@@ -136,7 +138,7 @@ export function createAuthRouter(prisma: PrismaClient, options: AuthRouterOption
     const cookie = cookieHeader?.split(';').map((part) => part.trim()).find((part) => part.startsWith('gsc_session='));
     if (cookie) {
       const token = decodeCookieValue(cookie.slice('gsc_session='.length));
-      await prisma.userSession.updateMany({ where: { tokenHash: tokenHash(token), revokedAt: null }, data: { revokedAt: new Date() } });
+      await prisma.userSession.updateMany({ where: { tokenHash: await tokenHashAsync(token), revokedAt: null }, data: { revokedAt: new Date() } });
     }
     clearSessionCookies(res);
     res.status(204).send();
@@ -157,11 +159,12 @@ export function createAuthRouter(prisma: PrismaClient, options: AuthRouterOption
         : user.memberships[0];
       if (membership) {
         const token = secureToken();
+        const resetTokenHash = await tokenHashAsync(token); // hashed before the transaction: no CPU work while it holds a connection
         await prisma.$transaction(async (tx) => {
           // Only the newest link works.
           await tx.passwordResetToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
           await tx.passwordResetToken.create({
-            data: { companyId: membership.companyId, userId: user.id, tokenHash: tokenHash(token), expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000) },
+            data: { companyId: membership.companyId, userId: user.id, tokenHash: resetTokenHash, expiresAt: new Date(Date.now() + PASSWORD_RESET_TTL_MINUTES * 60 * 1000) },
           });
         });
         if (env.NODE_ENV !== 'production') res.append('X-Development-Reset-Token', token);
@@ -181,9 +184,9 @@ export function createAuthRouter(prisma: PrismaClient, options: AuthRouterOption
   router.post('/reset-password', async (req, res) => {
     const parsed = resetSchema.safeParse(req.body);
     if (!parsed.success) throw new ValidationError('Invalid reset fields', parsed.error.flatten());
-    const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: tokenHash(parsed.data.token) }, include: { user: { select: { status: true } } } });
+    const record = await prisma.passwordResetToken.findUnique({ where: { tokenHash: await tokenHashAsync(parsed.data.token) }, include: { user: { select: { status: true } } } });
     if (!record || record.usedAt || record.expiresAt <= new Date() || record.user.status !== 'ACTIVE') throw invalidReset();
-    const passwordHash = hashPassword(parsed.data.password);
+    const passwordHash = await hashPasswordAsync(parsed.data.password);
 
     await run({ companyId: record.companyId }, async (db, tx) => {
       // Single use even under concurrency: only the request that flips `usedAt` may change the password.
@@ -200,14 +203,14 @@ export function createAuthRouter(prisma: PrismaClient, options: AuthRouterOption
     const parsed = invitationSchema.safeParse(req.body);
     if (!parsed.success) throw new ValidationError('Invalid invitation fields', parsed.error.flatten());
     const invitation = await prisma.invitationToken.findUnique({
-      where: { tokenHash: tokenHash(parsed.data.token) },
+      where: { tokenHash: await tokenHashAsync(parsed.data.token) },
       include: { user: true, membership: true },
     });
     if (!invitation || invitation.usedAt || invitation.revokedAt || invitation.expiresAt <= new Date() ||
         invitation.membership.status !== 'INVITED' || invitation.user.status !== 'ACTIVE') {
       throw invalidInvitation();
     }
-    const passwordHash = hashPassword(parsed.data.password);
+    const passwordHash = await hashPasswordAsync(parsed.data.password);
     const employeeId = invitation.membership.employeeId;
 
     await run({ companyId: invitation.companyId }, async (db, tx) => {

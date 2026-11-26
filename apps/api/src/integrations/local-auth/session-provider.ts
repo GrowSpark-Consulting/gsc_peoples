@@ -1,7 +1,7 @@
 import type { PrismaClient } from '../../database/generated/client';
 import { UnauthorizedError } from '../../shared/errors';
 import type { CentralAuthProvider, VerifiedIdentity } from '../central-auth/types';
-import { tokenHash } from '../../modules/auth/password';
+import { tokenHashAsync } from '../../modules/auth/password';
 
 export class SessionAuthProvider implements CentralAuthProvider {
   readonly kind = 'development' as const;
@@ -12,7 +12,7 @@ export class SessionAuthProvider implements CentralAuthProvider {
     const now = new Date();
     const idleCutoff = new Date(now.getTime() - 8 * 60 * 60 * 1000);
     const session = await this.prisma.userSession.findUnique({
-      where: { tokenHash: tokenHash(token) },
+      where: { tokenHash: await tokenHashAsync(token) },
       include: { user: { select: { externalId: true, email: true, name: true, status: true } } },
     });
     if (!session || session.revokedAt || session.expiresAt <= now || session.lastActivityAt < idleCutoff) {
