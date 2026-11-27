@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 import { apiCall, clearMail, companyDate, emailedLink, empId, PASSWORD, resetDb, signIn, sql } from './support';
+import { fillIdentity } from './identity-helpers';
 
 test.use({ viewport: { width: 1280, height: 900 } });
 test.beforeEach(async () => {
@@ -35,6 +36,7 @@ test.describe('departments, designations, hiring, invitation and onboarding (ORG
     await hr.getByLabel(/^Hire date/).fill(companyDate(0));
     await hr.getByLabel(/^Department/).selectOption({ label: 'Finance' });
     await hr.getByLabel(/^Designation/).selectOption({ label: 'Accountant' });
+    await fillIdentity(hr); // mandatory government ID
     await hr.getByRole('button', { name: 'Create employee' }).click();
     await expect(hr).toHaveURL(/\/employees\/[0-9a-f-]{36}/);
     const [nina] = sql<{ id: string; employeeNumber: string; status: string }>(`select id,"employeeNumber",status from hr.employees where "workEmail"='nina@e2e.local'`);

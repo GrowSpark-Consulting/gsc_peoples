@@ -1,6 +1,10 @@
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
+
+// Throwaway AES-256 key for this test run's identity-document encryption. Generated, never stored or reused.
+const IDENTITY_KEY = randomBytes(32).toString('base64');
 
 /**
  * SESSION live tests: real browser -> real Next dev server -> real local API (AUTH_MODE=session: real
@@ -65,6 +69,8 @@ export default defineConfig({
         // Overrides the development database for THIS server process only.
         DATABASE_URL: testDatabaseUrl,
         DIRECT_URL: testDirectUrl,
+        // Government ID numbers: a throwaway key generated for this run only (never a real secret).
+        IDENTITY_DOC_ENCRYPTION_KEY: IDENTITY_KEY,
       },
     },
     {

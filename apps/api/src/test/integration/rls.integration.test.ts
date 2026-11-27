@@ -97,6 +97,11 @@ const TABLES: Record<string, { company: string; insert: string; appendOnly?: boo
     company: '"companyId"',
     insert: `INSERT INTO hr.employee_documents (id,"companyId","ownerEmployeeId","isCompanyDocument","fileName","storedPath","mimeType","sizeBytes","updatedAt") VALUES ($1,$2,'e-'||$2,false,'f','p','application/pdf',10,now())`,
   },
+  employee_identity_documents: {
+    company: '"companyId"',
+    // Soft-deleted rows, so repeated inserts never meet the one-active-document-per-employee index.
+    insert: `INSERT INTO hr.employee_identity_documents (id,"companyId","employeeId","documentType","numberCiphertext","numberLast4","frontPath","frontMimeType","frontSizeBytes","consentRecordedAt","firstUploadedAt","deletedAt","updatedAt") VALUES ($1,$2,'e-'||$2,'PAN','v1:AA:BB:CC','234F','p','image/jpeg',10,now(),now(),now(),now())`,
+  },
   notifications: {
     company: '"companyId"',
     insert: `INSERT INTO hr.notifications (id,"companyId","userId",type,title,"updatedAt") VALUES ($1,$2,'u1','t','t',now())`,
@@ -122,6 +127,7 @@ const SET: Record<string, string> = {
   leave_balances: `adjusted = 99`,
   leave_requests: `reason = 'hacked'`,
   employee_documents: `"fileName" = 'hacked'`,
+  employee_identity_documents: `"frontPath" = 'hacked'`,
   notifications: `title = 'hacked'`,
 };
 const HACKED: Record<string, string> = {
@@ -142,6 +148,7 @@ const HACKED: Record<string, string> = {
   leave_balances: `adjusted = 99`,
   leave_requests: `reason = 'hacked'`,
   employee_documents: `"fileName" = 'hacked'`,
+  employee_identity_documents: `"frontPath" = 'hacked'`,
   notifications: `title = 'hacked'`,
 };
 
@@ -188,7 +195,7 @@ const appCount = async (t: string, where = 'true') =>
   (await app.query(`SELECT count(*)::int AS n FROM hr.${t} WHERE ${where}`)).rows[0].n as number;
 
 describe('catalog: what RLS is on, and who it applies to', () => {
-  it('RLS is enabled on exactly the covered tables (7 original + 11 from the P0 migration), with the intended policies', async () => {
+  it('RLS is enabled on exactly the covered tables (7 original + 11 from the P0 migration + identity documents), with the intended policies', async () => {
     const on = (await admin.query(
       `SELECT relname FROM pg_class WHERE relnamespace='hr'::regnamespace AND relkind='r' AND relrowsecurity ORDER BY relname`,
     )).rows.map((r) => r.relname);
@@ -209,6 +216,7 @@ describe('catalog: what RLS is on, and who it applies to', () => {
       'employee_audit_logs:employee_audit_logs_tenant_insert:INSERT:PERMISSIVE',
       'employee_audit_logs:employee_audit_logs_tenant_select:SELECT:PERMISSIVE',
       'employee_documents:employee_documents_tenant_isolation:ALL:PERMISSIVE',
+      'employee_identity_documents:employee_identity_documents_tenant_isolation:ALL:PERMISSIVE',
       'employee_number_sequences:employee_number_sequences_tenant_isolation:ALL:PERMISSIVE',
       'employees:employees_tenant_isolation:ALL:PERMISSIVE',
       'holidays:holidays_tenant_isolation:ALL:PERMISSIVE',

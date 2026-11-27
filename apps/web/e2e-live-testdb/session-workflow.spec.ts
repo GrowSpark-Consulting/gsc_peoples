@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { fillIdentity } from '../e2e-scratch/identity-helpers';
 
 /**
  * REAL session-cookie workflow, in a real browser, against the real API and REAL PostgreSQL (`hr_test`
@@ -230,6 +231,7 @@ test.describe('HR operations through the UI persist in PostgreSQL', () => {
     await form.getByLabel('First name').fill('Uma');
     await form.getByLabel('Last name').fill('Browser');
     await form.getByLabel('Job title').fill('Test Engineer');
+    await fillIdentity(page); // mandatory government ID
     await form.getByRole('button', { name: 'Create employee' }).click();
     await expect(page).toHaveURL(/\/employees\/[0-9a-f-]{36}$/, { timeout: 30_000 });
     expect(JSON.parse(fx('employee-by-number', 'E2E-UI-1'))).toMatchObject({ jobTitle: 'Test Engineer', status: 'ONBOARDING' }); // PRD W2: new employees start in Onboarding

@@ -93,7 +93,7 @@ export function readMultiUpload(req: Request, opts: { fileFields: readonly strin
     try {
       bb = busboy({
         headers: req.headers,
-        limits: { files: opts.fileFields.length, fileSize: opts.maxBytes + 1, fields: opts.maxFields, fieldSize: 2048, parts: opts.fileFields.length + opts.maxFields },
+        limits: { files: opts.fileFields.length, fileSize: opts.maxBytes + 1, fields: opts.maxFields, fieldSize: 2048, parts: opts.fileFields.length + opts.maxFields + 1 },
         defParamCharset: 'utf8',
       });
     } catch {

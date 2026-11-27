@@ -1,6 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import path from 'node:path';
 import { expect, test, type BrowserContext, type Page } from '@playwright/test';
+import { fillIdentity } from '../e2e-scratch/identity-helpers';
 
 /**
  * PRODUCTION-MODE workflow: `next start` frontend + built production API (NODE_ENV=production,
@@ -108,6 +109,7 @@ test.describe('session workflow in production mode', () => {
     await form.getByLabel('First name').fill('Pia');
     await form.getByLabel('Last name').fill('Production');
     await form.getByLabel('Job title').fill('Test Engineer');
+    await fillIdentity(page); // mandatory government ID
     await form.getByRole('button', { name: 'Create employee' }).click();
     await expect(page).toHaveURL(/\/employees\/[0-9a-f-]{36}$/, { timeout: 30_000 });
     expect(JSON.parse(fx('employee-by-number', 'E2E-PROD-1'))).toMatchObject({ jobTitle: 'Test Engineer', status: 'ONBOARDING' });

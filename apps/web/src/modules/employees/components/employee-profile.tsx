@@ -15,6 +15,7 @@ import { describeError, isApiError } from '../errors';
 import { formatDay, formatTimestamp, fullName, TYPE_LABEL } from '../format';
 import { useEmployee } from '../hooks/use-employees';
 import { useEmployeesContext } from '../state/employees-context';
+import { IdentityDocumentsPanel, identityAccess } from '@/modules/identity-documents/identity-documents-panel';
 import { ActivityTimeline, InvitePanel, MyContactForm } from './record-sections';
 import { StatusBadge } from './status-badge';
 import { StatusChangePanel } from './status-change-panel';
@@ -215,6 +216,13 @@ export function EmployeeProfile({ id, embedded = false, onOpenEmployee, onChange
           </dl>
         </Card>
 
+        {live && identityAccess(session, e.id).canRead ? (
+          <div className={wide}>
+            <Card title="Identity documents">
+              <IdentityDocumentsPanel employeeId={e.id} session={session} />
+            </Card>
+          </div>
+        ) : null}
         {caps.canChangeStatus ? (
           <div className={wide}>
             <Card title="Employment status">

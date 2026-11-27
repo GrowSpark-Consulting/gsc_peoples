@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { expect, test, type APIRequestContext, type Page } from '@playwright/test';
+import { fillIdentity } from '../e2e-scratch/identity-helpers';
 
 /**
  * LIVE tests: real browser, real Next dev server, real local API (port 4100) and the real local
@@ -111,6 +112,7 @@ test.describe('HR Admin (real API + PostgreSQL)', () => {
     await form.getByLabel('First name').fill('E2E');
     await form.getByLabel('Last name').fill(`Run${RUN}`);
     await form.getByLabel('Job title').fill('Test Engineer');
+    await fillIdentity(page); // mandatory government ID
     await form.getByRole('button', { name: 'Create employee' }).click();
 
     // Generous: the first visit to /employees/[id] compiles the route in `next dev`.

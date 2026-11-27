@@ -26,6 +26,8 @@ import { useDepartments } from '../hooks/use-employees';
 import { useAsyncData } from '../hooks/use-async-data';
 import { listDesignationOptions } from '../record-api';
 import { useEmployeesContext } from '../state/employees-context';
+import { IdentityDocumentFields } from '@/modules/identity-documents/identity-document-fields';
+import { useIdentityUpload } from '@/modules/identity-documents/use-identity-upload';
 import { ManagerPicker } from './manager-picker';
 
 /** Stands in for a number the server will generate, so the rest of the form can be validated. */
@@ -86,6 +88,12 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
   const orNull = (s: string) => (s.trim() === '' ? null : s.trim());
   const [formError, setFormError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // Government ID is mandatory when adding an employee on the real API. Two steps: create the employee (the
+  // unchanged employee endpoint), then upload the document. If step two fails the employee already exists, so
+  // the form switches to a retry state that can only retry the upload (never create a second employee).
+  const requireIdentity = live && mode === 'create';
+  const identity = useIdentityUpload();
+  const [created, setCreated] = useState<Employee | null>(null);
   const [manager, setManager] = useState<ManagerOption | null>(
     employee?.manager ? { id: employee.manager.id, label: managerLabel(employee.manager) } : null,
   );
@@ -127,29 +135,48 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
     setFormError(describeError(e));
   };
 
+  const uploadIdentity = async (target: Employee) => {
+    const input = identity.validate();
+    if (!input) return;
+    const r = await identity.submit(target.id, input);
+    if (r.ok) onSaved(target);
+  };
+
   const submit = handleSubmit(async (values) => {
     setFormError(null);
     setNotice(null);
+    if (created) return; // retry has its own button; never create a second employee
     setExtraErrors({});
     const generate = live && mode === 'create' && values.employeeNumber.trim() === '';
     const checked = validateForm(generate ? { ...values, employeeNumber: PLACEHOLDER_NUMBER } : values);
     if (!checked.ok) return;
+    // Validate the identity section up front, so the employee is never created with an invalid document.
+    const identityInput = requireIdentity ? identity.validate() : null;
     if (live && mode === 'create') {
       // PRD EMP-001: joining date and designation are required.
       if (!values.hireDate) return setError('hireDate', { type: 'validation', message: 'Enter the joining date' });
       if (!extra.designationId) return setExtraErrors({ designationId: 'Choose a designation' });
     }
+    if (requireIdentity && !identityInput) {
+      setFormError('Complete the identity document section before creating the employee.');
+      return;
+    }
     try {
       if (mode === 'create') {
         const payload = toPayload(values);
         if (generate) delete payload.employeeNumber;
-        onSaved(
-          await service.create(
-            live
-              ? { ...payload, designationId: extra.designationId, phone: orNull(extra.phone), address: orNull(extra.address), emergencyContact: orNull(extra.emergencyContact) }
-              : payload,
-          ),
+        const saved = await service.create(
+          live
+            ? { ...payload, designationId: extra.designationId, phone: orNull(extra.phone), address: orNull(extra.address), emergencyContact: orNull(extra.emergencyContact) }
+            : payload,
         );
+        if (!requireIdentity || !identityInput) {
+          onSaved(saved);
+          return;
+        }
+        setCreated(saved);
+        const r = await identity.submit(saved.id, identityInput);
+        if (r.ok) onSaved(saved);
         return;
       }
       if (!employee) throw new Error('Edit mode needs an employee');
@@ -170,7 +197,21 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
       if (isApiError(e) && e.fieldErrors.designationId) setExtraErrors({ designationId: e.fieldErrors.designationId });
       showServerError(e);
     }
+  }, () => {
+    // Employee fields are invalid: show the identity section's problems at the same time.
+    if (requireIdentity && !created) identity.validate();
   });
+
+  const [retrying, setRetrying] = useState(false);
+  const retry = async () => {
+    if (!created || retrying) return;
+    setRetrying(true);
+    try {
+      await uploadIdentity(created);
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   const departmentOptions = [...(departments.data ?? [])];
   if (employee?.department && !departmentOptions.some((d) => d.id === employee.department!.id)) {
@@ -187,6 +228,14 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
       <FormError message={formError} />
       {notice ? <Alert variant="info">{notice}</Alert> : null}
 
+      {created ? (
+        <Alert variant="warning" title="The employee was created, but the identity document was not saved.">
+          {created.firstName} {created.lastName} ({created.employeeNumber}) now exists. {identity.error ?? 'The upload did not finish.'}{' '}
+          Retry the upload below, or continue and add the document later from the employee&apos;s profile.
+        </Alert>
+      ) : null}
+
+      <fieldset disabled={!!created} className="contents">
       <FormSection title="Identity">
         <Field
           label="Employee number"
@@ -317,14 +366,48 @@ export function EmployeeForm({ mode, employee, onSaved, onCancel }: EmployeeForm
           }}
         />
       </FormSection>
+      </fieldset>
+
+      {requireIdentity ? (
+        <section aria-labelledby="identity-section-title" className="flex min-w-0 flex-col gap-4">
+          <div>
+            <h3 id="identity-section-title" className="text-h3 font-semibold text-ink">
+              Government ID / Identity proof
+            </h3>
+            <p className="mt-0.5 text-small text-muted">Required. Stored privately; only HR, Super Admins and the employee can view it.</p>
+          </div>
+          <IdentityDocumentFields
+            draft={identity.draft}
+            onChange={identity.setDraft}
+            errors={identity.errors}
+            onFieldError={identity.setFieldError}
+            disabled={identity.uploading}
+            progress={identity.progress}
+            audience="hr"
+          />
+          {identity.error && !created ? <Alert variant="danger" title="The identity document was not saved.">{identity.error}</Alert> : null}
+        </section>
+      ) : null}
 
       <div className="flex flex-wrap gap-3">
-        <Button type="submit" loading={isSubmitting}>
-          {mode === 'create' ? 'Create employee' : 'Save changes'}
-        </Button>
-        <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
-          Cancel
-        </Button>
+        {created ? (
+          <Button type="button" onClick={retry} loading={retrying} loadingText="Uploading…">
+            Retry document upload
+          </Button>
+        ) : (
+          <Button type="submit" loading={isSubmitting}>
+            {mode === 'create' ? 'Create employee' : 'Save changes'}
+          </Button>
+        )}
+        {created ? (
+          <Button variant="secondary" onClick={() => onSaved(created)} disabled={retrying}>
+            Continue without document
+          </Button>
+        ) : (
+          <Button variant="secondary" onClick={onCancel} disabled={isSubmitting}>
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   );

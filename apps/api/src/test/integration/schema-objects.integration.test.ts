@@ -40,7 +40,7 @@ const q = async <T extends object>(sql: string, params: unknown[] = []) =>
   (await admin.query<T>(sql, params)).rows;
 
 describe('pg_constraint: CHECK constraints', () => {
-  it('exactly the expected CHECK constraints exist (9 original + 8 from the P0 migration), validated, with the intended expressions', async () => {
+  it('exactly the expected CHECK constraints exist (9 original + 8 from the P0 migration + 8 for identity documents), validated, with the intended expressions', async () => {
     const rows = await q<{ conrelid: string; conname: string; def: string; convalidated: boolean }>(
       `SELECT ${qualified('conrelid')} AS conrelid, conname, pg_get_constraintdef(oid) AS def, convalidated
        FROM pg_constraint WHERE connamespace = 'hr'::regnamespace AND contype = 'c' ORDER BY conname`,
@@ -54,6 +54,14 @@ describe('pg_constraint: CHECK constraints', () => {
       'employee_documents_owner_matches_flag',
       'employee_documents_size_max',
       'employee_documents_size_positive',
+      'employee_identity_documents_back_complete',
+      'employee_identity_documents_back_required',
+      'employee_identity_documents_back_size',
+      'employee_identity_documents_ciphertext',
+      'employee_identity_documents_front_size',
+      'employee_identity_documents_last4',
+      'employee_identity_documents_mime',
+      'employee_identity_documents_purge_after_delete',
       'employees_no_self_manager',
       'employees_terminated_requires_termination_date',
       'employees_termination_after_hire',

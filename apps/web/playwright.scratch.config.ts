@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
 import path from 'node:path';
 import { defineConfig, devices } from '@playwright/test';
 
@@ -20,6 +21,9 @@ const apiDir = path.resolve(__dirname, '../api');
 const apiUrl = `http://localhost:${API_PORT}/api/v1`;
 const SMTP_PORT = Number(process.env.E2E_SMTP_PORT ?? 4425);
 const MAIL_PORT = Number(process.env.E2E_MAIL_PORT ?? 4426);
+
+// Throwaway AES-256 key for this test run's identity-document encryption. Generated, never stored or reused.
+const IDENTITY_KEY = randomBytes(32).toString('base64');
 
 const urls = JSON.parse(
   execFileSync(process.execPath, [path.join(apiDir, 'node_modules/tsx/dist/cli.mjs'), 'scripts/e2e-scratch-db.ts', 'urls'], { cwd: apiDir, encoding: 'utf8' }).trim(),
@@ -82,6 +86,9 @@ export default defineConfig({
         MAIL_FROM: 'GSC Peoples <no-reply@e2e.local>',
         WEB_APP_URL: `http://localhost:${WEB_PORT}`,
         DOCUMENTS_STORAGE_DIR: path.resolve(__dirname, 'test-results/e2e-scratch-documents'),
+        IDENTITY_DOCUMENTS_STORAGE_DIR: path.resolve(__dirname, 'test-results/e2e-scratch-identity-documents'),
+        // Government ID numbers: a throwaway key generated for this run only (never a real secret).
+        IDENTITY_DOC_ENCRYPTION_KEY: IDENTITY_KEY,
       },
     },
     {
