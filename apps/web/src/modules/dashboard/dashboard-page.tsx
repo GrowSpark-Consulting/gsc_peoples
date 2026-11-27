@@ -1,6 +1,16 @@
 'use client';
 
-import { CalendarCheck, CalendarDays, Clock, LogIn, LogOut, UserPlus } from 'lucide-react';
+import {
+  CalendarCheck,
+  CalendarDays,
+  Clock,
+  Inbox,
+  LogIn,
+  LogOut,
+  UserCheck,
+  UserPlus,
+  Users,
+} from 'lucide-react';
 import Link from 'next/link';
 import { Alert } from '@/components/ui/alert';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { useAsyncData } from '@/modules/employees/hooks/use-async-data';
 import { formatDay, formatTimestamp } from '@/modules/employees/format';
 import type { Session } from '@/modules/employees/permissions';
+import { DashboardSkeleton, StatGridSkeleton } from '@/components/shared/page-skeletons';
 import { QueryBoundary, Section, SessionGate } from '@/modules/shared/page-state';
 import { num, obj, str, type Loose } from '@/modules/shared/loose';
 import {
@@ -38,7 +49,7 @@ export function dashboardVariant(session: Session): DashboardVariant | null {
 
 export function DashboardPage() {
   return (
-    <SessionGate>
+    <SessionGate skeleton="dashboard">
       {(session) => {
         const v = dashboardVariant(session);
         if (!v)
@@ -55,6 +66,77 @@ export function DashboardPage() {
 }
 
 const grid = 'grid gap-4 sm:grid-cols-2 xl:grid-cols-4';
+
+/** Labelled group of KPI cards. */
+function StatGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  const id = `stat-group-${title.toLowerCase().replace(/\s+/g, '-')}`;
+  return (
+    <section aria-labelledby={id} className="flex flex-col gap-3">
+      <h2 id={id} className="text-caption font-medium uppercase text-muted">
+        {title}
+      </h2>
+      {children}
+    </section>
+  );
+}
+
+/**
+ * Today's attendance from the API counts: a proportional bar plus one card per state. The bar is a
+ * visual summary only; the numbers and labels in the cards carry the information (never colour alone).
+ * PRD DASH-001: "Absent" only after the work day has ended; before that "Not yet in".
+ */
+function TodayPanel({
+  present,
+  notYetIn,
+  absent,
+  onLeave,
+}: {
+  present: number;
+  notYetIn: number;
+  absent: number;
+  onLeave: number;
+}) {
+  const parts = [
+    { key: 'present', label: 'Present today', value: present, color: 'bg-data-1', word: 'present' },
+    { key: 'not-yet-in', label: 'Not yet in', value: notYetIn, color: 'bg-data-4', word: 'not yet in' },
+    { key: 'absent', label: 'Absent', value: absent, color: 'bg-data-2', word: 'absent' },
+    { key: 'on-leave', label: 'On leave', value: onLeave, color: 'bg-data-3', word: 'on leave' },
+  ];
+  const total = parts.reduce((sum, p) => sum + p.value, 0);
+  const summary = parts.map((p) => `${p.value} ${p.word}`).join(', ');
+  return (
+    <section aria-labelledby="today-heading" className="rounded-lg border border-line bg-surface p-4 shadow-sm sm:p-5">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <h2 id="today-heading" className="text-h3 font-semibold text-ink">
+          Today
+        </h2>
+        <p className="text-small text-muted">{new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</p>
+      </div>
+      <div
+        role="img"
+        aria-label={total > 0 ? `Attendance today: ${summary}.` : 'No attendance recorded yet today.'}
+        className="mt-4 flex h-2.5 w-full gap-0.5 overflow-hidden rounded-full bg-sunken"
+      >
+        {total > 0
+          ? parts
+              .filter((p) => p.value > 0)
+              .map((p) => (
+                <span
+                  key={p.key}
+                  className={cn('h-full first:rounded-l-full last:rounded-r-full', p.color)}
+                  style={{ width: `${(p.value / total) * 100}%` }}
+                />
+              ))
+          : null}
+      </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        {parts.map((p) => (
+          <StatCard key={p.key} label={p.label} value={p.value} marker={p.color} appearance="plain" />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 function QuickLinks({ links }: { links: { href: string; label: string; icon: React.ReactNode }[] }) {
   return (
@@ -74,20 +156,23 @@ function QuickLinks({ links }: { links: { href: string; label: string; icon: Rea
 function HrDashboard() {
   const q = useAsyncData('dash:hr', getHrDashboard);
   return (
-    <QueryBoundary query={q} title="Could not load the dashboard.">
+    <QueryBoundary query={q} title="Could not load the dashboard." fallback={<DashboardSkeleton label="Loading dashboard" />}>
       {(d) => (
         <div className="flex flex-col gap-6">
-          <div className={grid}>
-            <StatCard label="Total employees" value={d.totalEmployees} />
-            <StatCard label="Active employees" value={d.activeEmployees} />
-            <StatCard label="Present today" value={d.presentToday} />
-            {/* PRD DASH-001: "Absent" only after the work day has ended; before that "Not yet in". */}
-            <StatCard label="Absent" value={d.absentToday} />
-            <StatCard label="Not yet in" value={d.notYetInToday} />
-            <StatCard label="On leave" value={d.onLeaveToday} />
-            <StatCard label="Pending approvals" value={d.pendingApprovals} />
-            <StatCard label="Joined in last 30 days" value={d.joinersLast30Days} />
-          </div>
+          <StatGroup title="Workforce">
+            <div className={grid}>
+              <StatCard label="Total employees" value={d.totalEmployees} icon={Users} href="/employees" />
+              <StatCard label="Active employees" value={d.activeEmployees} icon={UserCheck} />
+              <StatCard label="Joined in last 30 days" value={d.joinersLast30Days} icon={UserPlus} />
+              <StatCard label="Pending approvals" value={d.pendingApprovals} icon={Inbox} href="/leave" />
+            </div>
+          </StatGroup>
+          <TodayPanel
+            present={d.presentToday}
+            notYetIn={d.notYetInToday}
+            absent={d.absentToday}
+            onLeave={d.onLeaveToday}
+          />
           <QuickLinks
             links={[
               { href: '/employees/new', label: 'Add employee', icon: <UserPlus aria-hidden /> },
@@ -115,7 +200,7 @@ function JoinerList({ rows }: { rows: { id: string; name: string; employeeNumber
     <ul className="divide-y divide-line">
       {rows.map((r) => (
         <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
-          <Link href={`/employees/${r.id}`} className="text-body text-ink underline">
+          <Link href={`/employees/${r.id}`} className="touch-target text-body text-ink underline underline-offset-2 hover:text-primary">
             {r.name}
             <span className="text-muted"> · {r.employeeNumber}</span>
           </Link>
@@ -153,19 +238,23 @@ function ManagerDashboard() {
   const q = useAsyncData('dash:manager', getManagerDashboard);
   const names = useAsyncData('dash:team-names', getTeamNames);
   return (
-    <QueryBoundary query={q} title="Could not load the dashboard.">
+    <QueryBoundary query={q} title="Could not load the dashboard." fallback={<DashboardSkeleton label="Loading dashboard" />}>
       {(d) => {
         const a = d.teamAttendance;
         return (
           <div className="flex flex-col gap-6">
-            <div className={grid}>
-              <StatCard label="Team members" value={d.teamMembers} />
-              <StatCard label="Present today" value={num(a, 'present') ?? 0} />
-              <StatCard label="Absent" value={num(a, 'absent') ?? 0} />
-              <StatCard label="Not yet in" value={num(a, 'notYetIn') ?? 0} />
-              <StatCard label="On leave" value={num(a, 'onLeave') ?? 0} />
-              <StatCard label="Pending approvals" value={d.pendingApprovals} />
-            </div>
+            <StatGroup title="Team">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <StatCard label="Team members" value={d.teamMembers} icon={Users} />
+                <StatCard label="Pending approvals" value={d.pendingApprovals} icon={Inbox} href="/leave" />
+              </div>
+            </StatGroup>
+            <TodayPanel
+              present={num(a, 'present') ?? 0}
+              notYetIn={num(a, 'notYetIn') ?? 0}
+              absent={num(a, 'absent') ?? 0}
+              onLeave={num(a, 'onLeave') ?? 0}
+            />
             <QuickLinks
               links={[
                 { href: '/leave', label: 'Approve leave', icon: <CalendarDays aria-hidden /> },
@@ -207,7 +296,7 @@ function EmployeeDashboard() {
   const q = useAsyncData('dash:employee', getEmployeeDashboard);
   const balances = useAsyncData('dash:balances', getMyLeaveBalances);
   return (
-    <QueryBoundary query={q} title="Could not load the dashboard.">
+    <QueryBoundary query={q} title="Could not load the dashboard." fallback={<DashboardSkeleton label="Loading dashboard" />}>
       {(d) => (
         <div className="flex flex-col gap-6">
           <div className="grid gap-4 lg:grid-cols-2">
@@ -219,7 +308,7 @@ function EmployeeDashboard() {
             </Section>
           </div>
           <Section title="Leave balances">
-            <QueryBoundary query={balances} title="Could not load leave balances.">
+            <QueryBoundary query={balances} title="Could not load leave balances." fallback={<StatGridSkeleton />}>
               {(rows) =>
                 rows.length === 0 ? (
                   <EmptyState title="No balances" description="Leave balances are set up by HR." />
@@ -353,7 +442,7 @@ function NotificationList({ rows }: { rows: Loose[] }) {
         return (
           <li key={str(r, 'id') ?? i} className="flex flex-wrap items-center justify-between gap-2 py-2.5">
             {link && link.startsWith('/') ? (
-              <Link href={link} className="text-body text-ink underline">
+              <Link href={link} className="touch-target text-body text-ink underline underline-offset-2 hover:text-primary">
                 {title}
               </Link>
             ) : (

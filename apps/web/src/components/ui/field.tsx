@@ -2,8 +2,9 @@ import { CircleAlert } from 'lucide-react';
 import { useId } from 'react';
 import { cn } from '@/lib/utils';
 
-const controlBase =
-  'w-full rounded-md border border-line-strong bg-surface px-3 text-body text-ink transition-colors duration-[120ms] placeholder:text-muted read-only:bg-sunken disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-60 aria-[invalid=true]:border-danger';
+/* Shared look for text-like controls. Exported so pages never restyle raw inputs by hand. */
+export const controlBase =
+  'w-full min-w-0 rounded-md border border-line-strong bg-surface px-3 text-body text-ink transition-[color,background-color,border-color,box-shadow] duration-[120ms] placeholder:text-muted hover:border-ink/40 focus-visible:border-primary read-only:bg-sunken disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-60 aria-[invalid=true]:border-danger';
 
 export interface InputProps extends React.ComponentProps<'input'> {
   invalid?: boolean;
@@ -13,7 +14,7 @@ export function Input({ invalid, className, ...props }: InputProps) {
   return (
     <input
       aria-invalid={invalid || props['aria-invalid'] || undefined}
-      className={cn(controlBase, 'h-9', className)}
+      className={cn(controlBase, 'h-9 pointer-coarse:h-11', className)}
       {...props}
     />
   );

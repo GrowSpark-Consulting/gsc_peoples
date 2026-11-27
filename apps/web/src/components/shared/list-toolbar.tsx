@@ -44,14 +44,14 @@ export function ListToolbar({ label, search, filters, actions, primary, classNam
           onChange={(e) => search.onChange(e.target.value)}
           placeholder={search.placeholder}
           autoComplete="off"
-          className="h-9 w-full rounded-md border border-line-strong bg-surface pl-9 pr-9 text-body text-ink placeholder:text-muted [&::-webkit-search-cancel-button]:hidden"
+          className="h-9 w-full rounded-md border border-line-strong bg-surface pl-9 pr-9 text-body text-ink transition-colors duration-[120ms] placeholder:text-muted hover:border-ink/40 focus-visible:border-primary pointer-coarse:h-11 pointer-coarse:pr-11 [&::-webkit-search-cancel-button]:hidden"
         />
         {search.value ? (
           <button
             type="button"
             aria-label="Clear search"
             onClick={() => search.onChange('')}
-            className="absolute right-2 top-1/2 inline-flex size-6 -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm text-muted hover:text-ink"
+            className="absolute right-2 top-1/2 inline-flex size-6 -translate-y-1/2 pointer-coarse:right-0 pointer-coarse:size-11 cursor-pointer items-center justify-center rounded-sm text-muted hover:text-ink"
           >
             <X className="size-4" strokeWidth={1.75} aria-hidden />
           </button>

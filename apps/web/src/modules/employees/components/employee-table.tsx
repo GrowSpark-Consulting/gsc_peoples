@@ -111,7 +111,7 @@ export function EmployeeCards({
 }) {
   if (loading) {
     return (
-      <ul className="grid gap-3 md:hidden" data-testid="employee-cards" aria-hidden>
+      <ul className="grid grid-cols-[minmax(0,1fr)] gap-3 md:hidden" data-testid="employee-cards" aria-hidden>
         {Array.from({ length: Math.min(pageSize, 4) }, (_, i) => (
           <li
             key={i}
@@ -122,9 +122,9 @@ export function EmployeeCards({
     );
   }
   return (
-    <ul className="grid gap-3 md:hidden" data-testid="employee-cards" aria-label="Employees">
+    <ul className="grid grid-cols-[minmax(0,1fr)] gap-3 md:hidden" data-testid="employee-cards" aria-label="Employees">
       {rows.map((e) => (
-        <li key={e.id} className="rounded-lg border border-line bg-surface p-4 shadow-sm">
+        <li key={e.id} className="min-w-0 rounded-lg border border-line bg-surface p-4 shadow-sm">
           <div className="flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-3">
               <Avatar name={fullName(e)} size="lg" />
@@ -138,7 +138,7 @@ export function EmployeeCards({
             </div>
             <StatusBadge status={e.status} />
           </div>
-          <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-1 text-small">
+          <dl className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-1 text-small">
             <dt className="text-muted">Department</dt>
             <dd className="text-ink">{e.department?.name ?? dash}</dd>
             <dt className="text-muted">Manager</dt>

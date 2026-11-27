@@ -130,7 +130,7 @@ export function Sidebar({
           aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           title={collapsed ? 'Expand sidebar' : undefined}
           className={cn(
-            'flex h-9 w-full cursor-pointer items-center gap-3 rounded-md px-3 text-body text-on-sidebar-muted transition-colors duration-[120ms] hover:bg-sidebar-active hover:text-on-sidebar',
+            'flex h-9 w-full cursor-pointer items-center gap-3 rounded-md px-3 text-body text-on-sidebar-muted transition-colors duration-[120ms] hover:bg-sidebar-active hover:text-on-sidebar focus-visible:outline-sidebar-indicator',
             collapsed && 'justify-center px-0',
           )}
         >
@@ -162,15 +162,21 @@ function NavItem({
 }) {
   const Icon = item.icon;
   const className = cn(
-    'flex h-9 w-full cursor-pointer items-center gap-3 rounded-md px-3 text-body transition-colors duration-[120ms]',
+    // Focus ring uses the sidebar's own light accent: the global accent ring is too dark on the rail.
+    'relative flex h-9 w-full cursor-pointer items-center gap-3 rounded-md px-3 text-body transition-colors duration-[120ms] focus-visible:outline-sidebar-indicator pointer-coarse:h-11',
+    // Active: filled row + a 3px indicator bar, so the state never relies on a subtle tint alone.
     active
-      ? 'bg-sidebar-active font-medium text-on-sidebar'
-      : 'text-on-sidebar hover:bg-sidebar-active/60',
+      ? "bg-sidebar-active font-medium text-on-sidebar before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-sidebar-indicator before:content-['']"
+      : 'text-on-sidebar-muted hover:bg-sidebar-active/60 hover:text-on-sidebar',
     collapsed && 'justify-center px-0',
   );
   const content = (
     <>
-      <Icon className="size-[18px] shrink-0" strokeWidth={1.75} aria-hidden />
+      <Icon
+        className={cn('size-[18px] shrink-0', active && 'text-sidebar-indicator')}
+        strokeWidth={1.75}
+        aria-hidden
+      />
       <span className={cn('flex-1 truncate text-left', collapsed && 'sr-only')}>{item.label}</span>
       {item.badge !== undefined && !collapsed ? (
         <span className="gs-num text-label font-normal text-on-sidebar-muted">{item.badge}</span>

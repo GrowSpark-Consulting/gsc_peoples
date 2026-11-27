@@ -63,7 +63,7 @@ const TABS = [
 ] as const;
 
 export function OrganizationPage() {
-  return <SessionGate>{(session) => <OrganizationBody session={session} />}</SessionGate>;
+  return <SessionGate skeleton="tabs">{(session) => <OrganizationBody session={session} />}</SessionGate>;
 }
 
 function OrganizationBody({ session }: { session: Session }) {

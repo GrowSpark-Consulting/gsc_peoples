@@ -52,7 +52,7 @@ export default function ForgotPasswordPage() {
         <button disabled={loading || !ready} className={authButtonClass}>
           {loading ? 'Sending...' : error ? 'Try again' : 'Send reset link'}
         </button>
-        <a href="/login" className="mt-5 block text-center text-label font-medium text-primary hover:text-primary-hover hover:underline">Back to sign in</a>
+        <a href="/login" className="mt-5 flex justify-center text-center touch-target text-label font-medium text-primary hover:text-primary-hover hover:underline">Back to sign in</a>
       </form>
     </AuthShell>
   );

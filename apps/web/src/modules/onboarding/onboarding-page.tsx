@@ -74,7 +74,7 @@ function fieldErrors(issues: { path: PropertyKey[]; message: string }[]): Record
 }
 
 export function OnboardingPage() {
-  return <SessionGate>{(session) => <OnboardingBody session={session} />}</SessionGate>;
+  return <SessionGate skeleton="sections">{(session) => <OnboardingBody session={session} />}</SessionGate>;
 }
 
 function OnboardingBody({ session }: { session: Session }) {

@@ -22,7 +22,7 @@ import { downloadAttendanceCsv, getAttendanceReport, REPORT_PAGE_SIZE } from './
 
 export function ReportsPage() {
   return (
-    <SessionGate>
+    <SessionGate skeleton="reports">
       {(session) =>
         hasPermission(session, PERMISSIONS.ATTENDANCE_REPORT) ? <ReportsBody session={session} /> : <AccessDeniedState />
       }

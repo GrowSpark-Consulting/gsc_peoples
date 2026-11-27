@@ -94,7 +94,7 @@ function AcceptInvitationForm() {
       <AuthShell>
         <AuthHeading title="Accept invitation" />
         <AuthError>{INVITE_INVALID}</AuthError>
-        <a href="/login" className={`mt-8 block text-center ${linkClass}`}>Back to sign in</a>
+        <a href="/login" className={`mt-8 flex justify-center touch-target text-center ${linkClass}`}>Back to sign in</a>
       </AuthShell>
     );
   }

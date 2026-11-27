@@ -79,7 +79,7 @@ function ResetPasswordForm() {
         <AuthHeading title="Reset password" />
         <AuthError>{INVALID_LINK}</AuthError>
         <a href="/forgot-password" className={`${authButtonClass} grid place-items-center`}>Send reset link</a>
-        <a href="/login" className={`mt-5 block text-center ${linkClass}`}>Back to sign in</a>
+        <a href="/login" className={`mt-5 flex justify-center touch-target text-center ${linkClass}`}>Back to sign in</a>
       </AuthShell>
     );
   }

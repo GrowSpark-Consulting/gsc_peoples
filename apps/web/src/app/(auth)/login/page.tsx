@@ -78,7 +78,7 @@ export default function LoginPage() {
           <div>
             <div className="flex items-baseline justify-between">
               <label className={authLabelClass} htmlFor="password">Password</label>
-              <a href="/forgot-password" className="text-label font-medium text-primary hover:text-primary-hover hover:underline">Forgot password</a>
+              <a href="/forgot-password" className="touch-target text-label font-medium text-primary hover:text-primary-hover hover:underline">Forgot password</a>
             </div>
             <div className="relative mt-2">
               <input id="password" name="password" type={showPassword ? 'text' : 'password'} autoComplete="current-password" minLength={8} required className={`${authFieldClass} pr-11`} />

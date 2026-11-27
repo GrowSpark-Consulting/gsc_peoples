@@ -94,7 +94,7 @@ export function MobileNav({ id, open, onClose, children }: MobileNavProps) {
           size="icon"
           aria-label="Close navigation menu"
           onClick={onClose}
-          className="absolute right-2 top-3 size-8 text-on-sidebar-muted hover:bg-sidebar-active hover:text-on-sidebar"
+          className="absolute right-2 top-2.5 size-9 text-on-sidebar-muted hover:bg-sidebar-active hover:text-on-sidebar focus-visible:outline-sidebar-indicator pointer-coarse:top-1.5 pointer-coarse:size-11"
         >
           <X strokeWidth={1.75} />
         </Button>

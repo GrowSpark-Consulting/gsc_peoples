@@ -72,7 +72,7 @@ export function FilterMultiSelect<T extends string>({
         aria-controls={open ? panelId : undefined}
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          'flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border bg-surface px-3 text-body text-ink transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-60',
+          'flex h-9 w-full cursor-pointer items-center justify-between pointer-coarse:h-11 gap-2 rounded-md border bg-surface px-3 text-body text-ink transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-60',
           selected.length > 0 ? 'border-primary' : 'border-line-strong',
         )}
       >
@@ -88,7 +88,7 @@ export function FilterMultiSelect<T extends string>({
           <ul className="flex flex-col">
             {options.map((o) => (
               <li key={o.value}>
-                <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-body text-ink hover:bg-hover">
+                <label className="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1.5 text-body text-ink hover:bg-hover pointer-coarse:min-h-11">
                   <input
                     type="checkbox"
                     checked={value.includes(o.value)}

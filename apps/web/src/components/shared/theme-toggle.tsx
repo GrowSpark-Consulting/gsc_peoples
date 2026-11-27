@@ -34,10 +34,11 @@ export function ThemeToggle({ className }: { className?: string }) {
             role="radio"
             aria-checked={checked}
             aria-label={label}
+            title={`${label} theme`}
             onClick={() => setPreference(value)}
             className={cn(
-              'inline-flex h-[30px] items-center gap-1.5 rounded-sm px-2 text-label sm:px-2.5 font-medium transition-colors duration-[120ms]',
-              checked ? 'bg-primary text-on-primary' : 'text-ink hover:bg-hover',
+              'inline-flex h-[30px] cursor-pointer items-center gap-1.5 rounded-sm px-2 text-label font-medium transition-colors duration-[120ms] sm:px-2.5 pointer-coarse:h-11 pointer-coarse:min-w-11 pointer-coarse:justify-center',
+              checked ? 'bg-primary text-on-primary shadow-sm' : 'text-muted hover:bg-hover hover:text-ink',
             )}
           >
             <Icon className="size-4" strokeWidth={1.75} aria-hidden />

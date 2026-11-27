@@ -1,4 +1,5 @@
-import { Triangle } from 'lucide-react';
+import { Triangle, type LucideIcon } from 'lucide-react';
+import Link from 'next/link';
 import { formatINR, formatINRShort, formatNumber } from '@/lib/format';
 import { cn } from '@/lib/utils';
 import { Skeleton } from './skeleton';
@@ -23,6 +24,14 @@ export interface StatCardProps extends Omit<React.ComponentProps<'div'>, 'childr
   format?: StatFormat;
   comparison?: StatComparison;
   loading?: boolean;
+  /** Small icon in the top-right corner (decorative). */
+  icon?: LucideIcon;
+  /** Background class for a legend dot before the label, e.g. `bg-data-1` (ties the card to a chart). */
+  marker?: string;
+  /** Makes the whole card a link to the page where the number can be acted on. */
+  href?: string;
+  /** `plain` drops the border and shadow, for cards grouped inside another surface. */
+  appearance?: 'card' | 'plain';
 }
 
 const TONE: Record<ComparisonTone, string> = {
@@ -54,17 +63,35 @@ export function StatCard({
   format = 'number',
   comparison,
   loading = false,
+  icon: Icon,
+  marker,
+  href,
+  appearance = 'card',
   className,
   ...props
 }: StatCardProps) {
   const tone = comparison?.tone ?? 'neutral';
-  return (
-    <div
-      aria-busy={loading || undefined}
-      className={cn('rounded-lg border border-line bg-surface p-5 shadow-sm', className)}
-      {...props}
-    >
-      <p className="text-body text-muted">{label}</p>
+  const classes = cn(
+    'relative block min-w-0 rounded-lg p-5',
+    appearance === 'card' ? 'border border-line bg-surface shadow-sm' : 'bg-sunken/60 p-4',
+    href &&
+      'group cursor-pointer transition-[border-color,box-shadow,background-color] duration-[120ms] hover:border-line-strong hover:shadow-md',
+    className,
+  );
+  // The label stays a direct child of the root so the value is always inside the label's parent.
+  const body = (
+    <>
+      {Icon ? (
+        <Icon
+          aria-hidden
+          strokeWidth={1.75}
+          className="absolute right-4 top-4 size-[18px] text-muted transition-colors duration-[120ms] group-hover:text-primary"
+        />
+      ) : null}
+      <p className={cn('flex items-center gap-2 text-body text-muted', Icon && 'pr-7')}>
+        {marker ? <span aria-hidden className={cn('size-2 shrink-0 rounded-full', marker)} /> : null}
+        {label}
+      </p>
       {loading ? (
         <div className="mt-2 flex flex-col gap-2">
           <Skeleton className="h-9 w-32" />
@@ -101,6 +128,19 @@ export function StatCard({
           ) : null}
         </>
       )}
+    </>
+  );
+
+  if (href) {
+    return (
+      <Link href={href} aria-busy={loading || undefined} className={classes}>
+        {body}
+      </Link>
+    );
+  }
+  return (
+    <div aria-busy={loading || undefined} className={classes} {...props}>
+      {body}
     </div>
   );
 }

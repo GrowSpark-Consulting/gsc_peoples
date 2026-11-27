@@ -1,6 +1,6 @@
 import type { RequestHandler } from 'express';
 import type { PrismaClient } from '../../database/generated/client';
-import { tokenHashAsync } from '../../modules/auth/password';
+import { cachedTokenHashAsync } from '../../modules/auth/password';
 import { ForbiddenError } from '../../shared/errors';
 import { decodeCookieValue } from './cookie-value';
 
@@ -23,7 +23,14 @@ export function requireCsrf(prisma?: PrismaClient): RequestHandler {
     const sessionValue = decodeCookieValue(sessionCookie.slice('gsc_session='.length));
     if (!prisma || csrfHeader !== csrfValue) throw new ForbiddenError('CSRF validation failed');
 
-    const [sessionHash, csrfHash] = await Promise.all([tokenHashAsync(sessionValue), tokenHashAsync(csrfValue)]);
+    // `authenticate` already validated this exact session cookie (revocation, expiry, idle timeout, account status)
+    // moments ago in the same request and kept its row's CSRF hash: compare against that row instead of reading it again.
+    if (req.authMethod === 'session' && req.sessionCsrfHash) {
+      if (req.sessionCsrfHash !== (await cachedTokenHashAsync(csrfValue))) throw new ForbiddenError('CSRF validation failed');
+      return next();
+    }
+
+    const [sessionHash, csrfHash] = await Promise.all([cachedTokenHashAsync(sessionValue), cachedTokenHashAsync(csrfValue)]);
     const session = await prisma.userSession.findUnique({
       where: { tokenHash: sessionHash },
       select: { csrfHash: true, revokedAt: true, expiresAt: true },

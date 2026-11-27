@@ -1,6 +1,7 @@
 'use client';
 
 import { Skeleton } from '@/components/ui/skeleton';
+import { PageSkeleton, type PageSkeletonVariant } from '@/components/shared/page-skeletons';
 import { AccessDeniedState, ErrorState } from '@/components/shared/data-states';
 import { describeApiError, isForbidden } from '@/lib/api-client';
 import { useSession } from '@/hooks/use-session';
@@ -17,10 +18,21 @@ export function PageLoading({ label = 'Loading' }: { label?: string }) {
   );
 }
 
-/** Shows loading / error (with retry) / 403 instead of the page until the session is known. */
-export function SessionGate({ children }: { children: (session: Session) => React.ReactNode }) {
+/**
+ * Shows loading / error (with retry) / 403 instead of the page until the session is known. Pass the page's
+ * `PageSkeleton` variant so the session wait looks exactly like the route's `loading.tsx` (no visual jump).
+ */
+export function SessionGate({
+  children,
+  skeleton,
+}: {
+  children: (session: Session) => React.ReactNode;
+  skeleton?: PageSkeletonVariant;
+}) {
   const state = useSession();
-  if (state.status === 'loading') return <PageLoading label="Loading your session" />;
+  if (state.status === 'loading') {
+    return skeleton ? <PageSkeleton variant={skeleton} label="Loading your session" /> : <PageLoading label="Loading your session" />;
+  }
   if (state.status === 'error') {
     return isForbidden(state.error) ? (
       <AccessDeniedState />
@@ -39,13 +51,16 @@ export function SessionGate({ children }: { children: (session: Session) => Reac
 export function QueryBoundary<T>({
   query,
   title,
+  fallback,
   children,
 }: {
   query: { status: string; data: T | undefined; error: unknown; reload: () => void };
   title?: string;
+  /** Content-shaped placeholder (e.g. KPI cards); defaults to a generic block. */
+  fallback?: React.ReactNode;
   children: (data: T) => React.ReactNode;
 }) {
-  if (query.status === 'loading' || query.status === 'idle') return <PageLoading />;
+  if (query.status === 'loading' || query.status === 'idle') return <>{fallback ?? <PageLoading />}</>;
   if (query.status === 'error') {
     return isForbidden(query.error) ? (
       <AccessDeniedState />

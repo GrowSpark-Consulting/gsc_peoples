@@ -1,11 +1,12 @@
 import type { ReactNode } from 'react';
+import { ThemeToggle } from '@/components/shared/theme-toggle';
 
 /** Shared input styling for the sign-in, forgot-password and reset-password screens. */
 export const authFieldClass =
-  'h-11 w-full rounded-md border border-line bg-surface px-3 text-body text-ink shadow-sm transition-colors placeholder:text-muted hover:border-line-strong focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/20';
+  'h-11 w-full rounded-md border border-line-strong bg-surface px-3 text-body text-ink shadow-sm transition-[border-color,box-shadow] duration-[120ms] placeholder:text-muted hover:border-ink/40 focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/60 aria-[invalid=true]:border-danger';
 
 export const authButtonClass =
-  'mt-8 h-11 w-full rounded-md bg-primary text-body font-medium text-on-primary shadow-sm transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60';
+  'mt-8 inline-flex h-11 w-full cursor-pointer items-center justify-center gap-2 rounded-md bg-primary text-body font-medium text-on-primary shadow-sm transition-colors duration-[120ms] hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60';
 
 export const authLabelClass = 'block text-label font-medium text-ink';
 
@@ -33,8 +34,9 @@ export function AuthShell({ children }: { children: ReactNode }) {
         <span aria-hidden="true" />
       </aside>
 
-      <section className="flex items-center justify-center px-4 py-12 sm:px-8">
-        <div className="w-full max-w-[400px] rounded-lg bg-surface p-6 shadow-md sm:p-8">
+      <section className="relative flex items-center justify-center px-4 pb-12 pt-20 sm:px-8 lg:py-12">
+        <ThemeToggle className="absolute right-4 top-4 sm:right-6 sm:top-6" />
+        <div className="w-full max-w-[400px] rounded-lg border border-line bg-surface p-6 shadow-md sm:p-8">
           <BrandMark className="mb-8 text-ink lg:hidden" />
           {children}
         </div>

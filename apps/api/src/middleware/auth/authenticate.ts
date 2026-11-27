@@ -24,7 +24,9 @@ export function authenticate(provider: CentralAuthProvider, sessionProvider?: Ce
     // and the caller must present a bearer token. Never call a provider with an undefined token.
     let verifiedBy: CentralAuthProvider;
     if (sessionToken && sessionProvider) {
-      req.identity = await sessionProvider.verifyToken(sessionToken);
+      const { sessionCsrfHash, ...identity } = await sessionProvider.verifyToken(sessionToken);
+      req.identity = identity;
+      req.sessionCsrfHash = sessionCsrfHash;
       req.authMethod = 'session';
       verifiedBy = sessionProvider;
     } else if (bearerToken) {

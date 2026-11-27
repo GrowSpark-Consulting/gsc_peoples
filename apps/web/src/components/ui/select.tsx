@@ -13,7 +13,7 @@ export function Select({ invalid, className, children, ...props }: SelectProps) 
       <select
         aria-invalid={invalid || props['aria-invalid'] || undefined}
         className={cn(
-          'h-9 w-full cursor-pointer appearance-none rounded-md border border-line-strong bg-surface pl-3 pr-9 text-body text-ink transition-colors duration-[120ms] disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-60 aria-[invalid=true]:border-danger',
+          'h-9 w-full min-w-0 cursor-pointer appearance-none truncate rounded-md border border-line-strong bg-surface pl-3 pr-9 text-body text-ink transition-colors duration-[120ms] hover:border-ink/40 focus-visible:border-primary pointer-coarse:h-11 disabled:cursor-not-allowed disabled:bg-sunken disabled:opacity-60 aria-[invalid=true]:border-danger',
           className,
         )}
         {...props}

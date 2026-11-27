@@ -32,7 +32,7 @@ export function PageHeader({ description, breadcrumbs, actions, className }: Pag
                 return (
                   <li key={`${b.label}-${i}`} className="flex items-center gap-1">
                     {b.href && !last ? (
-                      <Link href={b.href} className="rounded-sm hover:text-ink hover:underline">
+                      <Link href={b.href} className="touch-target rounded-sm hover:text-ink hover:underline">
                         {b.label}
                       </Link>
                     ) : (

@@ -1,8 +1,9 @@
 'use client';
 
-import { Building2, ChevronDown, LogOut, Menu } from 'lucide-react';
+import { Building2, ChevronDown, Loader2, LogOut, Menu } from 'lucide-react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
+import { useState } from 'react';
 import { ThemeToggle } from '@/components/shared/theme-toggle';
 import { Avatar } from '@/components/ui/avatar';
 import { buttonVariants } from '@/components/ui/button';
@@ -34,6 +35,8 @@ export function TopBar({
 }: TopBarProps) {
   const router = useRouter();
   const me = useCurrentUser();
+  // Sign-out always leaves the page (even when the request fails), so the busy state never needs resetting.
+  const [signingOut, setSigningOut] = useState(false);
   const who = me ? `${me.displayName} · ${ROLE_LABELS[me.roleKey]}` : null;
   return (
     <header className="sticky top-0 z-10 flex h-14 items-center gap-2 border-b border-line bg-surface px-4 sm:gap-3 sm:px-6">
@@ -74,9 +77,13 @@ export function TopBar({
 
       <button
         type="button"
-        aria-label="Sign out"
-        title="Sign out"
+        aria-label={signingOut ? 'Signing out...' : 'Sign out'}
+        title={signingOut ? 'Signing out...' : 'Sign out'}
+        disabled={signingOut}
+        aria-busy={signingOut || undefined}
         onClick={async () => {
+          if (signingOut) return;
+          setSigningOut(true);
           const api = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
           const csrf = document.cookie.split('; ').find((row) => row.startsWith('gsc_csrf='))?.slice('gsc_csrf='.length) ?? '';
           await fetch(`${api}/auth/logout`, {
@@ -91,13 +98,17 @@ export function TopBar({
         }}
         className={cn(buttonVariants({ variant: 'ghost', size: 'icon' }), 'rounded-full')}
       >
-        <LogOut className="size-[18px]" strokeWidth={1.75} aria-hidden />
+        {signingOut ? (
+          <Loader2 className="size-[18px] animate-spin motion-reduce:animate-none" strokeWidth={1.75} aria-hidden />
+        ) : (
+          <LogOut className="size-[18px]" strokeWidth={1.75} aria-hidden />
+        )}
       </button>
       <Link
         href="/profile"
         title={who ?? 'Your profile'}
         aria-label={who ? `Your profile: ${who}` : 'Your profile'}
-        className="shrink-0 rounded-full"
+        className="-mr-1 inline-flex shrink-0 items-center justify-center rounded-full pointer-coarse:size-11"
       >
         <Avatar name={me?.displayName ?? 'Account'} size="lg" />
       </Link>

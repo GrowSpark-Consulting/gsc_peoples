@@ -1,4 +1,4 @@
-import { randomBytes, scrypt, scryptSync, timingSafeEqual, type BinaryLike } from 'node:crypto';
+import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual, type BinaryLike } from 'node:crypto';
 
 /**
  * Password and token hashing (scrypt, Node defaults N=16384 r=8 p=1).
@@ -69,3 +69,36 @@ export function tokenHash(token: string): string {
 export async function tokenHashAsync(token: string): Promise<string> {
   return (await scryptAsync(token, TOKEN_SALT, TOKEN_KEY_LENGTH)).toString('hex');
 }
+
+/**
+ * Memoised `tokenHashAsync` for the tokens presented on EVERY authenticated request (session and CSRF cookies).
+ * scrypt costs ~100 ms of CPU per call and the libuv pool runs only four at once, so hashing the same cookie again on
+ * each request made scrypt the single largest cost of the API, and parallel page requests queued behind each other.
+ *
+ * Security: the result is identical to `tokenHashAsync` (the stored hash format is unchanged and no session is
+ * invalidated), and the database row is still read on every request, so revocation, expiry and idle timeout keep
+ * applying immediately. The cache is keyed by a SHA-256 of the token, never the raw token, holds entries for at most
+ * `TOKEN_HASH_CACHE_TTL_MS`, and is bounded in size (oldest first).
+ */
+const TOKEN_HASH_CACHE_MAX = 5_000;
+export const TOKEN_HASH_CACHE_TTL_MS = 15 * 60_000;
+const tokenHashCache = new Map<string, { hash: Promise<string>; expiresAt: number }>();
+
+export function cachedTokenHashAsync(token: string, now: number = Date.now()): Promise<string> {
+  const key = createHash('sha256').update(token).digest('hex');
+  const hit = tokenHashCache.get(key);
+  if (hit && hit.expiresAt > now) return hit.hash;
+  if (hit) tokenHashCache.delete(key);
+  const hash = tokenHashAsync(token);
+  tokenHashCache.set(key, { hash, expiresAt: now + TOKEN_HASH_CACHE_TTL_MS });
+  // A failed hash must not be remembered.
+  hash.catch(() => tokenHashCache.delete(key));
+  if (tokenHashCache.size > TOKEN_HASH_CACHE_MAX) {
+    const oldest = tokenHashCache.keys().next().value;
+    if (oldest !== undefined) tokenHashCache.delete(oldest);
+  }
+  return hash;
+}
+
+/** Test seam. */
+export const clearTokenHashCache = () => tokenHashCache.clear();

@@ -50,7 +50,7 @@ export function Drawer({ open, onClose, title, description, headerExtra, footer,
           size === 'md' ? 'max-w-[520px]' : 'max-w-[640px]',
         )}
       >
-        <header className="flex items-start gap-3 border-b border-line px-6 py-4">
+        <header className="flex items-start gap-3 border-b border-line px-4 py-4 sm:px-6">
           <div className="min-w-0 flex-1">
             <h2 id={titleId} className="truncate text-h2 font-semibold text-ink">
               {title}
@@ -62,12 +62,16 @@ export function Drawer({ open, onClose, title, description, headerExtra, footer,
             ) : null}
           </div>
           {headerExtra}
-          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose} className="-mr-2 size-8">
+          <Button variant="ghost" size="icon" aria-label="Close" onClick={onClose} className="-mr-2 size-8 pointer-coarse:size-11">
             <X strokeWidth={1.75} />
           </Button>
         </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">{children}</div>
-        {footer ? <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-line px-6 py-3">{footer}</footer> : null}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-5 sm:px-6">{children}</div>
+        {footer ? (
+          <footer className="flex flex-wrap items-center justify-end gap-3 border-t border-line px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
+            {footer}
+          </footer>
+        ) : null}
       </div>
     </div>
   );

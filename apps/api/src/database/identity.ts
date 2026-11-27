@@ -34,16 +34,17 @@ export function createIdentityStore(prisma: PrismaClient) {
      * verified token claims, never from request input.
      */
     async resolveActiveMembership(input: { externalId: string; companyId: string }) {
-      const user = await prisma.user.findUnique({
-        where: { externalId: input.externalId },
-        select: { id: true, status: true },
-      });
-      if (!user || user.status !== 'ACTIVE') return null;
-
+      // One round trip (runs on every authenticated request): the ACTIVE membership of the ACTIVE user with this
+      // external id. Same conditions as looking the user up first and the membership second.
       const membership = await prisma.companyMembership.findFirst({
-        where: { userId: user.id, companyId: input.companyId, status: 'ACTIVE' },
+        where: {
+          companyId: input.companyId,
+          status: 'ACTIVE',
+          user: { externalId: input.externalId, status: 'ACTIVE' },
+        },
         select: {
           id: true,
+          userId: true,
           employeeId: true,
           role: { select: { key: true } },
         },
@@ -51,7 +52,7 @@ export function createIdentityStore(prisma: PrismaClient) {
       if (!membership) return null;
 
       return {
-        userId: user.id,
+        userId: membership.userId,
         membershipId: membership.id,
         employeeId: membership.employeeId,
         roleKey: membership.role.key,

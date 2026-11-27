@@ -1,25 +1,51 @@
 'use client';
 
-import { useEffect, useState, type FormEvent } from 'react';
-import { AccessDeniedState } from '@/components/shared/data-states';
+import { Send, UserPlus, Users } from 'lucide-react';
+import { useState, type FormEvent } from 'react';
+import { PageHeader } from '@/components/layout/page-header';
+import { AccessDeniedState, ErrorState } from '@/components/shared/data-states';
+import { PageSkeleton } from '@/components/shared/page-skeletons';
+import { FormError } from '@/components/shared/form-layout';
+import { Alert } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { EmptyState } from '@/components/ui/empty-state';
+import { Field } from '@/components/ui/field';
+import { Select, SelectField } from '@/components/ui/select';
+import {
+  PersonCell,
+  Table,
+  TableBody,
+  TableCell,
+  TableEmpty,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TableSkeleton,
+} from '@/components/ui/table';
+import { useAction } from '@/hooks/use-action';
 import { hasPermission, PERMISSIONS, useSession } from '@/hooks/use-session';
+import { apiRequest, describeApiError, isForbidden } from '@/lib/api-client';
 import { useAsyncData } from '@/modules/employees/hooks/use-async-data';
 import { listEmployeesForInvite } from '@/modules/settings/api';
 import { formatTimestamp } from '@/modules/employees/format';
 import { AuditLogSection } from '@/modules/settings/audit-log-section';
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000/api/v1';
+type FeedbackArea = 'company' | 'users';
+type Row = Record<string, unknown>;
 
-function csrfToken() {
-  return document.cookie.split('; ').find((row) => row.startsWith('gsc_csrf='))?.slice('gsc_csrf='.length) ?? '';
-}
+const loadCompany = () => apiRequest<{ data: Row }>('/settings/company').then((r) => r.data);
+const loadUsers = () => apiRequest<{ data: Row[] }>('/settings/users').then((r) => r.data);
 
 export default function SettingsPage() {
-  const [company, setCompany] = useState<Record<string, unknown> | null>(null);
+  // The last saved company (the API's response to PATCH) replaces the loaded one without a refetch.
+  const [savedCompany, setSavedCompany] = useState<Row | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const [users, setUsers] = useState<Record<string, unknown>[]>([]);
-  const [reloadUsers, setReloadUsers] = useState(0);
+  // Which row action is running (membership id + kind), so only that row shows progress.
+  const [rowBusy, setRowBusy] = useState<{ id: string; kind: 'role' | 'status' | 'resend' } | null>(null);
+  // UI only: show success / error next to the section the person just acted in.
+  const [feedbackAt, setFeedbackAt] = useState<FeedbackArea>('company');
   const session = useSession();
   // The API enforces every rule; these only hide controls the caller's role cannot use (PRD section 5).
   const can = (p: Parameters<typeof hasPermission>[1]) => session.status === 'ready' && hasPermission(session.session, p);
@@ -28,193 +54,402 @@ export default function SettingsPage() {
   const canReadAudit = can(PERMISSIONS.AUDIT_READ);
   const canReadSettings = can(PERMISSIONS.SETTINGS_READ);
   // Employees who do not have a login yet can be invited; choosing one links the account to the record.
-  const candidates = useAsyncData(`settings:invitees:${reloadUsers}`, listEmployeesForInvite, can(PERMISSIONS.USER_ACCOUNT_READ));
+  const canReadUsers = can(PERMISSIONS.USER_ACCOUNT_READ);
+  // Stable keys + reload(): the current rows stay on screen while a refresh is in flight (no flash to skeleton).
+  const candidates = useAsyncData('settings:invitees', listEmployeesForInvite, canReadUsers);
   const invitees = (candidates.data ?? []).filter((e) => e.invitationStatus === 'NOT_INVITED' && e.workEmail && e.status !== 'INACTIVE' && e.status !== 'TERMINATED');
+  const companyQuery = useAsyncData('settings:company', loadCompany);
+  const usersQuery = useAsyncData('settings:users', loadUsers, session.status === 'ready' && canReadUsers);
+  const users = usersQuery.data ?? [];
+  const company = savedCompany ?? companyQuery.data ?? null;
+  const reloadUsers = () => {
+    usersQuery.reload();
+    candidates.reload();
+  };
 
-  useEffect(() => {
-    fetch(`${API}/settings/company`, { credentials: 'include' })
-      .then(async (response) => ({ response, body: await response.json().catch(() => undefined) }))
-      .then(({ response, body }) => {
-        if (!response.ok) throw new Error(body?.error?.message ?? 'Could not load company');
-        setCompany(body.data);
-      })
-      .catch((reason) => setError(reason instanceof Error ? reason.message : 'Could not load company'));
-  }, []);
+  // Each action: one request at a time (double clicks are ignored), a busy button, and success shown only after
+  // the API confirmed it. `useAction` turns any failure (validation, 403, 5xx, network) into a readable message.
+  const saveAction = useAction((body: Row) => apiRequest<{ data: Row }>('/settings/company', { method: 'PATCH', body }));
+  const inviteAction = useAction((body: Row) => apiRequest('/settings/users/invite', { method: 'POST', body }));
+  const rowAction = useAction((path: string, body?: Row) =>
+    apiRequest(`/settings/users/${path}`, { method: body ? 'PATCH' : 'POST', ...(body ? { body } : {}) }),
+  );
 
-  useEffect(() => {
-    fetch(`${API}/settings/users`, { credentials: 'include' })
-      .then(async (response) => ({ response, body: await response.json().catch(() => undefined) }))
-      .then(({ response, body }) => {
-        if (response.ok) setUsers(body.data);
-      })
-      .catch(() => undefined);
-  }, [reloadUsers]);
+  /** Starts an action in a section: clears old feedback and anchors the new feedback next to it. */
+  function begin(area: FeedbackArea) {
+    setFeedbackAt(area);
+    setError('');
+    setMessage('');
+  }
 
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError('');
-    setMessage('');
+    if (inviteAction.pending) return;
+    begin('users');
     const target = event.currentTarget; // React clears `currentTarget` after the first await
     const form = new FormData(target);
-    const response = await fetch(`${API}/settings/users/invite`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
-      body: JSON.stringify({
-        email: String(form.get('email')),
-        name: String(form.get('name') || '') || undefined,
-        employeeId: String(form.get('employeeId') || '') || undefined,
-        roleKey: String(form.get('roleKey')),
-      }),
+    const result = await inviteAction.run({
+      email: String(form.get('email')),
+      name: String(form.get('name') || '') || undefined,
+      employeeId: String(form.get('employeeId') || '') || undefined,
+      roleKey: String(form.get('roleKey')),
     });
-    const body = await response.json().catch(() => undefined);
-    if (!response.ok) {
-      setError(body?.error?.message ?? 'Could not create invitation');
+    if (!result.ok) {
+      setError(describeApiError(result.error));
       return;
     }
     setMessage('Invitation emailed. The link works for seven days.');
     target.reset();
-    setReloadUsers((n) => n + 1);
+    reloadUsers();
   }
 
-  async function accountAction(membershipId: string, path: string, body: Record<string, string>) {
-    setError('');
-    setMessage('');
-    const response = await fetch(`${API}/settings/users/${membershipId}/${path}`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
-      body: JSON.stringify(body),
-    });
-    const responseBody = await response.json().catch(() => undefined);
-    if (!response.ok) {
-      setError(responseBody?.error?.message ?? 'Account action failed');
+  async function accountAction(membershipId: string, kind: 'role' | 'status', body: Record<string, string>, onFail?: () => void) {
+    if (rowAction.pending) return onFail?.();
+    begin('users');
+    setRowBusy({ id: membershipId, kind });
+    const result = await rowAction.run(`${membershipId}/${kind}`, body);
+    setRowBusy(null);
+    if (!result.ok) {
+      setError(describeApiError(result.error));
+      onFail?.();
       return;
     }
     setMessage('Account updated.');
-    setReloadUsers((n) => n + 1);
+    reloadUsers();
   }
 
   async function resendInvitation(membershipId: string) {
-    setError('');
-    setMessage('');
-    const response = await fetch(`${API}/settings/users/${membershipId}/invitations/resend`, {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'X-CSRF-Token': csrfToken() },
-    });
-    const responseBody = await response.json().catch(() => undefined);
-    if (!response.ok) {
-      setError(responseBody?.error?.message ?? 'Could not resend invitation');
+    if (rowAction.pending) return;
+    begin('users');
+    setRowBusy({ id: membershipId, kind: 'resend' });
+    const result = await rowAction.run(`${membershipId}/invitations/resend`);
+    setRowBusy(null);
+    if (!result.ok) {
+      setError(describeApiError(result.error));
       return;
     }
     setMessage('Invitation emailed again. Earlier links no longer work.');
-    setReloadUsers((n) => n + 1);
+    reloadUsers();
   }
 
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setError('');
-    setMessage('');
+    if (saveAction.pending) return;
+    begin('company');
     const form = new FormData(event.currentTarget);
-    const response = await fetch(`${API}/settings/company`, {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken() },
-      body: JSON.stringify({
-        name: String(form.get('name')),
-        logoUrl: String(form.get('logoUrl') || '') || null,
-        timezone: String(form.get('timezone')),
-        workingDays: form.getAll('workingDays').map((day) => Number(day)),
-        workStartTime: String(form.get('workStartTime')),
-        workEndTime: String(form.get('workEndTime')),
-      }),
+    const result = await saveAction.run({
+      name: String(form.get('name')),
+      logoUrl: String(form.get('logoUrl') || '') || null,
+      timezone: String(form.get('timezone')),
+      workingDays: form.getAll('workingDays').map((day) => Number(day)),
+      workStartTime: String(form.get('workStartTime')),
+      workEndTime: String(form.get('workEndTime')),
     });
-    const body = await response.json().catch(() => undefined);
-    if (!response.ok) {
-      setError(body?.error?.message ?? 'Could not save settings');
+    if (!result.ok) {
+      setError(describeApiError(result.error));
     } else {
-      setCompany(body.data);
+      setSavedCompany(result.value.data);
       setMessage('Company settings saved.');
     }
   }
 
   if (session.status === 'ready' && !canReadSettings) return <AccessDeniedState />;
+  if (companyQuery.status === 'error' && isForbidden(companyQuery.error)) return <AccessDeniedState />;
 
   if (!company) {
-    return <div role="status" className="text-sm text-[#737373]">{error || 'Loading company settings...'}</div>;
+    return companyQuery.status === 'error' ? (
+      <ErrorState
+        title="Could not load company settings."
+        message={describeApiError(companyQuery.error)}
+        onRetry={companyQuery.reload}
+      />
+    ) : (
+      <PageSkeleton variant="form" label="Loading company settings..." />
+    );
   }
+  const rowPending = (id: string, kind: 'role' | 'status' | 'resend') => rowBusy?.id === id && rowBusy.kind === kind;
+
+  const feedback = (
+    <div aria-live="polite" className="empty:hidden">
+      {error ? <FormError title="Could not complete that." message={error} /> : null}
+      {message ? <Alert variant="success">{message}</Alert> : null}
+    </div>
+  );
+  const workingDays = Array.isArray(company.workingDays) ? (company.workingDays as unknown[]) : [];
 
   return (
-    <div className="max-w-2xl">
-      <h1 className="text-2xl font-semibold">Company settings</h1>
-      <form onSubmit={save} className="mt-6 border border-[#E5E5E5] bg-white p-5">
-        {!canEditCompany ? <p className="mb-4 text-sm text-[#737373]">Only a Super Admin can change company settings.</p> : null}
-        <fieldset disabled={!canEditCompany} className="grid min-w-0 gap-5">
-        <label className="grid gap-2 text-sm font-medium">
-          Company name
-          <input name="name" defaultValue={String(company.name)} required className="h-10 border border-[#E5E5E5] px-3 font-normal" />
-        </label>
-        <label className="grid gap-2 text-sm font-medium">
-          Logo URL
-          <input name="logoUrl" type="url" defaultValue={String(company.logoUrl ?? '')} className="h-10 border border-[#E5E5E5] px-3 font-normal" />
-        </label>
-        <label className="grid gap-2 text-sm font-medium">
-          Timezone
-          <input name="timezone" defaultValue={String(company.timezone)} required className="h-10 border border-[#E5E5E5] px-3 font-normal" />
-        </label>
-        <fieldset className="grid gap-2">
-          <legend className="text-sm font-medium">Working days</legend>
-          <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {[
-              ['1', 'Monday'], ['2', 'Tuesday'], ['3', 'Wednesday'], ['4', 'Thursday'],
-              ['5', 'Friday'], ['6', 'Saturday'], ['7', 'Sunday'],
-            ].map(([value, label]) => (
-              <label key={value} className="flex h-10 items-center gap-2 border border-[#E5E5E5] px-3 text-sm">
-                <input
-                  type="checkbox"
-                  name="workingDays"
-                  value={value}
-                  defaultChecked={Array.isArray(company.workingDays) && company.workingDays.includes(Number(value))}
-                />
-                {label}
-              </label>
-            ))}
-          </div>
-        </fieldset>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <label className="grid gap-2 text-sm font-medium">
-            Work start
-            <input name="workStartTime" type="time" defaultValue={String(company.workStartTime)} required className="h-10 border border-[#E5E5E5] px-3 font-normal" />
-          </label>
-          <label className="grid gap-2 text-sm font-medium">
-            Work end
-            <input name="workEndTime" type="time" defaultValue={String(company.workEndTime)} required className="h-10 border border-[#E5E5E5] px-3 font-normal" />
-          </label>
-        </div>
-        {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
-        {message && <p role="status" className="text-sm">{message}</p>}
-        {canEditCompany ? <button className="h-10 w-full bg-[#090909] text-sm font-medium text-white sm:w-40">Save settings</button> : null}
-        </fieldset>
-      </form>
+    <div className="flex flex-col gap-6">
+      <PageHeader description="Company details, working hours, user accounts and the audit trail." />
 
-      <section className="mt-8">
-        <h2 className="text-xl font-semibold">User accounts</h2>
-        <form onSubmit={invite} className="mt-4 grid gap-4 border border-[#E5E5E5] bg-white p-5 sm:grid-cols-2">
-          <label className="grid gap-2 text-sm font-medium">Email<input name="email" type="email" required className="h-10 border border-[#E5E5E5] px-3 font-normal" /></label>
-          <label className="grid gap-2 text-sm font-medium">Name<input name="name" className="h-10 border border-[#E5E5E5] px-3 font-normal" /></label>
-          <label className="grid gap-2 text-sm font-medium">Employee record (optional)<select name="employeeId" defaultValue="" onChange={(event) => { const chosen = invitees.find((e) => e.id === event.target.value); const email = event.target.form?.elements.namedItem('email'); if (chosen?.workEmail && email instanceof HTMLInputElement) email.value = chosen.workEmail; }} className="h-10 border border-[#E5E5E5] px-3 font-normal"><option value="">Not linked to an employee</option>{invitees.map((e) => <option key={e.id} value={e.id}>{e.firstName} {e.lastName} · {e.employeeNumber}</option>)}</select></label>
-          <label className="grid gap-2 text-sm font-medium">Role<select name="roleKey" required defaultValue="EMPLOYEE" className="h-10 border border-[#E5E5E5] px-3 font-normal">{canAssignRoles ? <><option value="SUPER_ADMIN">Super Admin</option><option value="HR_ADMIN">HR Admin</option></> : null}<option value="MANAGER">Manager</option><option value="EMPLOYEE">Employee</option></select></label>
-          <button className="h-10 w-full bg-[#090909] text-sm font-medium text-white sm:w-40">Create invitation</button>
+      <SettingsCard
+        id="company-settings"
+        title="Company settings"
+        description="Used for attendance rules, leave calculations and emails."
+      >
+        <form onSubmit={save} aria-busy={saveAction.pending || undefined}>
+          {!canEditCompany ? (
+            <Alert variant="info" className="mb-5">
+              Only a Super Admin can change company settings.
+            </Alert>
+          ) : null}
+          <fieldset disabled={!canEditCompany} className="grid min-w-0 max-w-3xl gap-6">
+            <div className="grid gap-4 md:grid-cols-2">
+              <Field
+                label="Company name"
+                name="name"
+                defaultValue={String(company.name)}
+                required
+                containerClassName="md:col-span-2"
+              />
+              <Field label="Logo URL" name="logoUrl" type="url" defaultValue={String(company.logoUrl ?? '')} placeholder="https://" />
+              <Field label="Timezone" name="timezone" defaultValue={String(company.timezone)} required />
+            </div>
+
+            <fieldset className="min-w-0">
+              <legend className="text-label font-medium text-ink">Working days</legend>
+              <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+                {[
+                  ['1', 'Monday'], ['2', 'Tuesday'], ['3', 'Wednesday'], ['4', 'Thursday'],
+                  ['5', 'Friday'], ['6', 'Saturday'], ['7', 'Sunday'],
+                ].map(([value, label]) => (
+                  <label
+                    key={value}
+                    className="flex h-10 min-w-0 cursor-pointer items-center gap-2 rounded-md border border-line-strong bg-surface px-3 text-body text-ink transition-colors duration-[120ms] hover:bg-hover has-[:checked]:border-primary has-[:checked]:bg-primary-soft has-[:disabled]:cursor-not-allowed has-[:disabled]:opacity-70 has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-focus-ring pointer-coarse:h-11"
+                  >
+                    <input
+                      type="checkbox"
+                      name="workingDays"
+                      value={value}
+                      defaultChecked={workingDays.includes(Number(value))}
+                      className="focus-visible:outline-none"
+                    />
+                    <span className="truncate">{label}</span>
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:max-w-md">
+              <Field label="Work start" name="workStartTime" type="time" defaultValue={String(company.workStartTime)} required />
+              <Field label="Work end" name="workEndTime" type="time" defaultValue={String(company.workEndTime)} required />
+            </div>
+
+            {feedbackAt === 'company' ? feedback : null}
+
+            {canEditCompany ? (
+              <div>
+                <Button type="submit" className="w-full sm:w-auto" loading={saveAction.pending} loadingText="Saving...">
+                  Save settings
+                </Button>
+              </div>
+            ) : null}
+          </fieldset>
         </form>
-        {users.length === 0 ? <p className="mt-4 text-sm text-[#737373]">No user accounts.</p> : <div className="mt-4 overflow-x-auto border border-[#E5E5E5]"><table className="w-full min-w-[720px] text-left text-sm"><thead className="border-b border-[#E5E5E5] bg-[#F5F5F5]"><tr><th className="p-3">User</th><th className="p-3">Role</th><th className="p-3">Account</th><th className="p-3">Invitation</th><th className="p-3">Last login</th><th className="p-3">Actions</th></tr></thead><tbody>{users.map((user) => <tr key={String(user.id)} className="border-b border-[#E5E5E5]"><td className="p-3">{String(user.name ?? user.email ?? '')}<span className="block text-xs text-[#737373]">{String(user.email ?? '')}</span></td><td className="p-3">{String(user.roleName ?? user.roleKey ?? '')}</td><td className="p-3">{String(user.accountStatus ?? '')}</td><td className="p-3">{String(user.invitationStatus ?? '')}</td><td className="p-3">{user.lastLoginAt ? formatTimestamp(String(user.lastLoginAt)) : 'Never'}</td><td className="p-3"><div className="flex flex-wrap gap-2">{user.status !== 'INVITED' ? <button type="button" className="h-8 border border-[#E5E5E5] px-2" onClick={() => accountAction(String(user.id), 'status', { status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE' })}>{user.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}</button> : null}{user.status === 'INVITED' ? <button type="button" className="h-8 border border-[#E5E5E5] px-2" onClick={() => resendInvitation(String(user.id))}>Resend</button> : null}{canAssignRoles ? <select aria-label="Role" className="h-8 border border-[#E5E5E5] px-2" defaultValue={String(user.roleKey)} onChange={(event) => accountAction(String(user.id), 'role', { roleKey: event.target.value })}><option value="SUPER_ADMIN">Super Admin</option><option value="HR_ADMIN">HR Admin</option><option value="MANAGER">Manager</option><option value="EMPLOYEE">Employee</option></select> : null}</div></td></tr>)}</tbody></table></div>}
-      </section>
+      </SettingsCard>
+
+      <SettingsCard
+        id="user-accounts"
+        title="User accounts"
+        description="Invite people to sign in. Linking an employee record fills in their work email."
+      >
+        <div className="flex flex-col gap-5">
+          <form onSubmit={invite} aria-busy={inviteAction.pending || undefined} className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <Field label="Email" name="email" type="email" required autoComplete="off" />
+            <Field label="Name" name="name" autoComplete="off" />
+            <SelectField
+              label="Employee record (optional)"
+              name="employeeId"
+              defaultValue=""
+              onChange={(event) => {
+                const chosen = invitees.find((e) => e.id === event.target.value);
+                const email = event.target.form?.elements.namedItem('email');
+                if (chosen?.workEmail && email instanceof HTMLInputElement) email.value = chosen.workEmail;
+              }}
+            >
+              <option value="">Not linked to an employee</option>
+              {invitees.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.firstName} {e.lastName} · {e.employeeNumber}
+                </option>
+              ))}
+            </SelectField>
+            <SelectField label="Role" name="roleKey" required defaultValue="EMPLOYEE">
+              {canAssignRoles ? (
+                <>
+                  <option value="SUPER_ADMIN">Super Admin</option>
+                  <option value="HR_ADMIN">HR Admin</option>
+                </>
+              ) : null}
+              <option value="MANAGER">Manager</option>
+              <option value="EMPLOYEE">Employee</option>
+            </SelectField>
+            <div className="sm:col-span-2 xl:col-span-4">
+              <Button
+                type="submit"
+                icon={<UserPlus aria-hidden />}
+                className="w-full sm:w-auto"
+                loading={inviteAction.pending}
+                loadingText="Sending invitation..."
+              >
+                Create invitation
+              </Button>
+            </div>
+          </form>
+
+          {feedbackAt === 'users' ? feedback : null}
+
+          <Table label="User accounts list" className="min-w-[760px]">
+            <TableHeader>
+              <TableRow>
+                <TableHead>User</TableHead>
+                <TableHead>Role</TableHead>
+                <TableHead>Account</TableHead>
+                <TableHead>Invitation</TableHead>
+                <TableHead>Last login</TableHead>
+                <TableHead align="right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {usersQuery.status === 'error' && users.length === 0 ? (
+                <TableEmpty colSpan={6}>
+                  {isForbidden(usersQuery.error) ? (
+                    <AccessDeniedState message="You do not have permission to view user accounts." />
+                  ) : (
+                    <ErrorState
+                      title="Could not load user accounts."
+                      message={describeApiError(usersQuery.error)}
+                      onRetry={usersQuery.reload}
+                    />
+                  )}
+                </TableEmpty>
+              ) : (usersQuery.status === 'loading' || usersQuery.status === 'idle') && users.length === 0 ? (
+                <TableSkeleton columns={6} rows={4} />
+              ) : users.length === 0 ? (
+                <TableEmpty colSpan={6}>
+                  <EmptyState icon={Users} title="No user accounts." description="Invitations you create appear here." />
+                </TableEmpty>
+              ) : (
+                users.map((user) => (
+                  <TableRow key={String(user.id)}>
+                    <TableCell className="py-2.5">
+                      <PersonCell name={String(user.name ?? user.email ?? '')} subtitle={String(user.email ?? '')} />
+                    </TableCell>
+                    <TableCell>{String(user.roleName ?? user.roleKey ?? '')}</TableCell>
+                    <TableCell>
+                      <StatusBadge value={user.accountStatus} />
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge value={user.invitationStatus} />
+                    </TableCell>
+                    <TableCell muted>{user.lastLoginAt ? formatTimestamp(String(user.lastLoginAt)) : 'Never'}</TableCell>
+                    <TableCell align="right" className="py-2">
+                      <div className="flex items-center justify-end gap-2">
+                        {canAssignRoles ? (
+                          <div className="w-40">
+                            <Select
+                              aria-label="Role"
+                              className="h-[30px] text-label"
+                              defaultValue={String(user.roleKey)}
+                              disabled={rowPending(String(user.id), 'role')}
+                              aria-busy={rowPending(String(user.id), 'role') || undefined}
+                              onChange={(event) => {
+                                const select = event.target;
+                                // A rejected (or ignored) change must not leave the select showing the new role.
+                                void accountAction(String(user.id), 'role', { roleKey: select.value }, () => {
+                                  select.value = String(user.roleKey);
+                                });
+                              }}
+                            >
+                              <option value="SUPER_ADMIN">Super Admin</option>
+                              <option value="HR_ADMIN">HR Admin</option>
+                              <option value="MANAGER">Manager</option>
+                              <option value="EMPLOYEE">Employee</option>
+                            </Select>
+                          </div>
+                        ) : null}
+                        {user.status !== 'INVITED' ? (
+                          <Button
+                            size="sm"
+                            variant={user.status === 'ACTIVE' ? 'destructive' : 'secondary'}
+                            loading={rowPending(String(user.id), 'status')}
+                            loadingText={user.status === 'ACTIVE' ? 'Deactivating...' : 'Activating...'}
+                            onClick={() =>
+                              void accountAction(String(user.id), 'status', {
+                                status: user.status === 'ACTIVE' ? 'DISABLED' : 'ACTIVE',
+                              })
+                            }
+                          >
+                            {user.status === 'ACTIVE' ? 'Deactivate' : 'Activate'}
+                          </Button>
+                        ) : null}
+                        {user.status === 'INVITED' ? (
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            icon={<Send aria-hidden />}
+                            loading={rowPending(String(user.id), 'resend')}
+                            loadingText="Sending..."
+                            onClick={() => void resendInvitation(String(user.id))}
+                          >
+                            Resend
+                          </Button>
+                        ) : null}
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                ))
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </SettingsCard>
 
       {canReadAudit ? (
-        <div className="mt-8">
-          <AuditLogSection users={users.map((u) => ({ id: String(u.userId), label: String(u.name ?? u.email ?? u.userId) }))} />
-        </div>
+        <AuditLogSection users={users.map((u) => ({ id: String(u.userId), label: String(u.name ?? u.email ?? u.userId) }))} />
       ) : null}
     </div>
   );
+}
+
+/** Surface card with a header row, matching the shared Section/Table surfaces. */
+function SettingsCard({
+  id,
+  title,
+  description,
+  children,
+}: {
+  id: string;
+  title: string;
+  description?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section aria-labelledby={`${id}-heading`} className="rounded-lg border border-line bg-surface shadow-sm">
+      <div className="border-b border-line px-4 py-4 sm:px-6">
+        <h2 id={`${id}-heading`} className="text-h3 font-semibold text-ink">
+          {title}
+        </h2>
+        {description ? <p className="mt-0.5 text-small text-muted">{description}</p> : null}
+      </div>
+      <div className="px-4 py-5 sm:px-6">{children}</div>
+    </section>
+  );
+}
+
+const STATUS_VARIANT: Record<string, 'success' | 'warning' | 'danger' | 'neutral'> = {
+  ACTIVE: 'success',
+  ACCEPTED: 'success',
+  PENDING: 'warning',
+  INVITED: 'warning',
+  EXPIRED: 'neutral',
+  RESCINDED: 'neutral',
+  DISABLED: 'danger',
+};
+
+/** API status code shown as a labelled badge (text + marker, never colour alone). */
+function StatusBadge({ value }: { value: unknown }) {
+  const code = String(value ?? '');
+  if (!code) return <span className="text-muted">—</span>;
+  const label = code.charAt(0) + code.slice(1).toLowerCase().replace(/_/g, ' ');
+  return <Badge variant={STATUS_VARIANT[code] ?? 'neutral'}>{label}</Badge>;
 }

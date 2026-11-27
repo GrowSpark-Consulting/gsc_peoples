@@ -33,6 +33,11 @@ export interface VerifiedIdentity {
   name?: string;
   companyId: string;
   rawRoles?: string[];
+  /**
+   * Session-cookie providers only: the validated session row's CSRF hash. `authenticate` moves it to
+   * `req.sessionCsrfHash` and removes it from `req.identity`.
+   */
+  sessionCsrfHash?: string;
 }
 
 export interface CentralAuthProvider {

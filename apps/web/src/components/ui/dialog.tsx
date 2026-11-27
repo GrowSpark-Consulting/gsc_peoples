@@ -35,7 +35,7 @@ export function Dialog({ open, onClose, title, description, footer, children }: 
         aria-labelledby={titleId}
         aria-describedby={description ? descId : undefined}
         tabIndex={-1}
-        className="relative w-full max-w-md animate-in rounded-lg border border-line bg-surface p-6 shadow-lg outline-none duration-200 fade-in zoom-in-95"
+        className="relative max-h-[calc(100dvh-2rem)] w-full max-w-md animate-in overflow-y-auto overscroll-contain rounded-lg border border-line bg-surface p-5 shadow-lg outline-none duration-200 fade-in zoom-in-95 sm:p-6"
       >
         <h2 id={titleId} className="text-h3 font-semibold text-ink">
           {title}
@@ -46,7 +46,11 @@ export function Dialog({ open, onClose, title, description, footer, children }: 
           </p>
         ) : null}
         {children ? <div className="mt-4">{children}</div> : null}
-        {footer ? <div className="mt-6 flex flex-wrap justify-end gap-3">{footer}</div> : null}
+        {footer ? (
+          <div className="mt-6 flex flex-col-reverse gap-3 sm:flex-row sm:flex-wrap sm:justify-end [&>*]:max-sm:w-full">
+            {footer}
+          </div>
+        ) : null}
       </div>
     </div>
   );

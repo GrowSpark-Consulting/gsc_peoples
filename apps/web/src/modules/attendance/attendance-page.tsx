@@ -52,7 +52,7 @@ import {
 } from './api';
 
 export function AttendancePage() {
-  return <SessionGate>{(session) => <AttendanceBody session={session} />}</SessionGate>;
+  return <SessionGate skeleton="sections">{(session) => <AttendanceBody session={session} />}</SessionGate>;
 }
 
 function AttendanceBody({ session }: { session: Session }) {

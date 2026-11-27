@@ -10,6 +10,13 @@ export async function fetchSession(opts: {
   baseUrl: string;
   fetchImpl?: typeof fetch;
 }): Promise<Session> {
+  return sessionFromMe(await fetchMe(opts));
+}
+
+export type MeData = ReturnType<typeof meResponseSchema.parse>['data'];
+
+/** The raw `GET /api/v1/me` payload (identity, permissions and company configuration). */
+export async function fetchMe(opts: { baseUrl: string; fetchImpl?: typeof fetch }): Promise<MeData> {
   let res: Response;
   try {
     res = await (opts.fetchImpl ?? fetch)(`${opts.baseUrl.replace(/\/+$/, '')}/me`, {
@@ -29,7 +36,11 @@ export async function fetchSession(opts: {
     }
     throw new ApiError(res.status, 'HTTP_ERROR', `Request failed (${res.status})`);
   }
-  const me = meResponseSchema.parse(body).data;
+  return meResponseSchema.parse(body).data;
+}
+
+/** Role and permissions exactly as the API granted them; a payload without a known role is a 403. */
+export function sessionFromMe(me: MeData): Session {
   const roleKey = me.roles.find((r): r is RoleKey => (ROLE_KEYS as readonly string[]).includes(r));
   if (!roleKey) throw new ApiError(403, 'FORBIDDEN', 'No recognised role for this company');
   return {

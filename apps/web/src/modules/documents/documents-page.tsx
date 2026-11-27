@@ -64,7 +64,7 @@ export const formatSize = (bytes: number) =>
 const PREVIEWABLE = new Set(['application/pdf', 'image/png', 'image/jpeg']);
 
 export function DocumentsPage() {
-  return <SessionGate>{(session) => <DocumentsBody session={session} />}</SessionGate>;
+  return <SessionGate skeleton="tabs">{(session) => <DocumentsBody session={session} />}</SessionGate>;
 }
 
 function DocumentsBody({ session }: { session: Session }) {

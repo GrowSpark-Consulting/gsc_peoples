@@ -39,6 +39,7 @@ import { useAsyncData } from '@/modules/employees/hooks/use-async-data';
 import type { Session } from '@/modules/employees/permissions';
 import { getEmployeeNames } from '@/modules/attendance/api';
 import { todayIn } from '@/modules/shared/datetime';
+import { StatGridSkeleton } from '@/components/shared/page-skeletons';
 import { QueryBoundary, Section, SessionGate } from '@/modules/shared/page-state';
 import {
   adjustBalance,
@@ -73,7 +74,7 @@ function fieldErrors(issues: { path: PropertyKey[]; message: string }[]): Record
 }
 
 export function LeavePage() {
-  return <SessionGate>{(session) => <LeaveBody session={session} />}</SessionGate>;
+  return <SessionGate skeleton="sections">{(session) => <LeaveBody session={session} />}</SessionGate>;
 }
 
 function LeaveBody({ session }: { session: Session }) {
@@ -130,7 +131,7 @@ function BalancesSection({ session }: { session: Session }) {
           </SelectField>
         </div>
       ) : null}
-      <QueryBoundary query={q} title="Could not load leave balances.">
+      <QueryBoundary query={q} title="Could not load leave balances." fallback={<StatGridSkeleton />}>
         {(rows) =>
           rows.length === 0 ? (
             <EmptyState title="No balances yet" description="Balances are created when leave is first applied or adjusted." />

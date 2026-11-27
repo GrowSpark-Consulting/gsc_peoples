@@ -30,9 +30,18 @@ export function Tabs<K extends string>({
       aria-label={label}
       className="mb-4 flex gap-1 overflow-x-auto border-b border-line"
       onKeyDown={(e) => {
+        // Roving tabindex: arrow keys / Home / End select a tab AND move focus to it (WAI-ARIA tabs).
         const i = items.findIndex((t) => t.key === value);
-        if (e.key === 'ArrowRight') onChange(items[(i + 1) % items.length]!.key);
-        if (e.key === 'ArrowLeft') onChange(items[(i - 1 + items.length) % items.length]!.key);
+        let next = -1;
+        if (e.key === 'ArrowRight') next = (i + 1) % items.length;
+        else if (e.key === 'ArrowLeft') next = (i - 1 + items.length) % items.length;
+        else if (e.key === 'Home') next = 0;
+        else if (e.key === 'End') next = items.length - 1;
+        if (next < 0) return;
+        e.preventDefault();
+        const key = items[next]!.key;
+        onChange(key);
+        document.getElementById(`${id}-${key}`)?.focus();
       }}
     >
       {items.map((t) => {
@@ -48,8 +57,10 @@ export function Tabs<K extends string>({
             tabIndex={selected ? 0 : -1}
             onClick={() => onChange(t.key)}
             className={cn(
-              '-mb-px shrink-0 cursor-pointer whitespace-nowrap border-b-2 px-3 py-2 text-body font-medium transition-colors',
-              selected ? 'border-primary text-ink' : 'border-transparent text-muted hover:text-ink',
+              '-mb-px min-h-10 shrink-0 cursor-pointer whitespace-nowrap rounded-t-md border-b-2 px-3 py-2 text-body font-medium transition-colors duration-[120ms] focus-visible:-outline-offset-2 pointer-coarse:min-h-11',
+              selected
+                ? 'border-primary text-ink'
+                : 'border-transparent text-muted hover:border-line-strong hover:text-ink',
             )}
           >
             {t.label}

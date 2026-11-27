@@ -18,6 +18,7 @@
   --sidebar-active: #3a3630;
   --on-sidebar: #ece6db;
   --on-sidebar-muted: #a69d8f;
+  --sidebar-indicator: #a9b98f;
   --on-primary: #fbfaf6;
 
   --line: #e3ddd3;
@@ -63,6 +64,7 @@
   --sidebar-active: #26231f;
   --on-sidebar: #e6e0d5;
   --on-sidebar-muted: #958c7f;
+  --sidebar-indicator: #a9b98f;
   --on-primary: #1a1d14;
 
   --line: #35322d;
@@ -116,6 +118,34 @@
   --row-height: 44px;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
+  /* Minimum touch target on coarse pointers (WCAG 2.5.5 / platform guidance). */
+  --touch-target: 44px;
+
+  /*
+   * Semantic aliases (shadcn-style names). They point at the Grow Spark tokens above, so they follow
+   * the active theme automatically. Use whichever vocabulary a component already uses; never add a
+   * second palette.
+   */
+  --background: var(--bg);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary-foreground: var(--on-primary);
+  --secondary: var(--surface-sunken);
+  --secondary-foreground: var(--ink);
+  --muted: var(--surface-sunken);
+  --muted-foreground: var(--ink-muted);
+  --accent-foreground: var(--on-primary);
+  --border: var(--line);
+  --input: var(--line-strong);
+  --ring: var(--focus-ring);
+  --destructive: var(--danger);
+  --sidebar-background: var(--sidebar);
+  --sidebar-foreground: var(--on-sidebar);
+  --sidebar-accent: var(--sidebar-active);
+  --sidebar-border: var(--sidebar-active);
 }
 
 @theme inline {
@@ -127,6 +157,7 @@
   --color-sidebar-active: var(--sidebar-active);
   --color-on-sidebar: var(--on-sidebar);
   --color-on-sidebar-muted: var(--on-sidebar-muted);
+  --color-sidebar-indicator: var(--sidebar-indicator);
   --color-line: var(--line);
   --color-line-strong: var(--line-strong);
   --color-ink: var(--ink);
@@ -171,6 +202,13 @@
   --color-input: var(--line-strong);
   --color-ring: var(--focus-ring);
   --color-destructive: var(--danger);
+  --color-secondary: var(--surface-sunken);
+  --color-secondary-foreground: var(--ink);
+  --color-accent-foreground: var(--on-primary);
+  --color-sidebar-background: var(--sidebar);
+  --color-sidebar-foreground: var(--on-sidebar);
+  --color-sidebar-accent: var(--sidebar-active);
+  --color-sidebar-border: var(--sidebar-active);
 
   --radius-sm: var(--gs-radius-sm);
   --radius-md: var(--gs-radius-md);
@@ -209,6 +247,15 @@
   --text-caption--letter-spacing: 0.02em;
 }
 
+/* 44px minimum hit area on touch screens only; desktop layout is unchanged. */
+@utility touch-target {
+  @media (pointer: coarse) {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch-target);
+  }
+}
+
 @utility gs-num {
   font-variant-numeric: tabular-nums;
 }
@@ -220,6 +267,54 @@
   :focus-visible {
     outline: 2px solid var(--focus-ring);
     outline-offset: 2px;
+  }
+  /* Native controls follow the theme (checkboxes, radios, range, progress). */
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  progress {
+    accent-color: var(--primary);
+  }
+  input[type='checkbox'],
+  input[type='radio'] {
+    width: 16px;
+    height: 16px;
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+  input[type='checkbox']:disabled,
+  input[type='radio']:disabled {
+    cursor: not-allowed;
+  }
+  /* Native file picker button, themed in both modes. */
+  input[type='file']::file-selector-button {
+    margin-right: 12px;
+    height: 32px;
+    padding: 0 12px;
+    border: 1px solid var(--line-strong);
+    border-radius: var(--gs-radius-md);
+    background: var(--surface);
+    color: var(--ink);
+    font: inherit;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 120ms;
+  }
+  input[type='file']::file-selector-button:hover {
+    background: var(--surface-hover);
+  }
+  /* iOS Safari zooms into any focused field under 16px; keep touch screens at 16px. */
+  @media (pointer: coarse) {
+    input:not([type='checkbox'], [type='radio'], [type='file'], [type='range']),
+    select,
+    textarea {
+      font-size: 16px;
+    }
+  }
+  /* Calendar / time picker icons are drawn by the browser; color-scheme above themes them. */
+  ::selection {
+    background: color-mix(in srgb, var(--primary) 28%, transparent);
   }
   @media (prefers-reduced-motion: reduce) {
     *,

@@ -1,11 +1,12 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import { usePathname, useRouter } from 'next/navigation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Alert } from '@/components/ui/alert';
 import { publicEnv } from '@/config/env';
 import { createHttpEmployeesService } from '../adapters/http-service';
-import { fetchSession } from '../adapters/me-client';
+import { loadSession, peekSession } from '@/hooks/use-session';
+import { PageSkeleton, type PageSkeletonVariant } from '@/components/shared/page-skeletons';
 import { describeError, isApiError } from '../errors';
 import type { Session } from '../permissions';
 import { EmployeesContextProvider } from './employees-context';
@@ -14,6 +15,13 @@ type State =
   | { status: 'loading' }
   | { status: 'error'; message: string; code: string }
   | { status: 'ready'; session: Session };
+
+/** Same placeholder as the route's loading.tsx, so the session wait does not swap skeletons. */
+function skeletonFor(pathname: string | null): PageSkeletonVariant {
+  if (!pathname || pathname === '/employees') return 'directory';
+  if (pathname === '/employees/new' || pathname.endsWith('/edit')) return 'form';
+  return 'profile';
+}
 
 function describeSessionError(status: number, message: string): string {
   if (status === 403) return `No access for this user in this company (403): ${message}`;
@@ -28,7 +36,11 @@ function describeSessionError(status: number, message: string): string {
  */
 export function SessionEmployeesProviders({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const [state, setState] = useState<State>({ status: 'loading' });
+  const pathname = usePathname();
+  const [state, setState] = useState<State>(() => {
+    const known = peekSession();
+    return known ? { status: 'ready', session: known } : { status: 'loading' };
+  });
 
   const toLogin = useCallback(() => router.replace('/login'), [router]);
   const service = useMemo(
@@ -38,7 +50,8 @@ export function SessionEmployeesProviders({ children }: { children: React.ReactN
 
   useEffect(() => {
     let cancelled = false;
-    fetchSession({ baseUrl: publicEnv.apiUrl })
+    // The page's shared `GET /me` (also used by the shell and top bar), not a second request.
+    loadSession()
       .then((session) => {
         if (!cancelled) setState({ status: 'ready', session });
       })
@@ -60,9 +73,9 @@ export function SessionEmployeesProviders({ children }: { children: React.ReactN
 
   if (state.status === 'loading') {
     return (
-      <p role="status" className="text-sm" data-testid="session-loading">
-        Loading your session…
-      </p>
+      <div data-testid="session-loading">
+        <PageSkeleton variant={skeletonFor(pathname)} label="Loading your session…" />
+      </div>
     );
   }
   if (state.status === 'error') {
