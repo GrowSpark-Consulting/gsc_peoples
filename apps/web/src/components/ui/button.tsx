@@ -68,11 +68,11 @@ export function Button({
         {...props}
       >
         <span className="grid">
-          <span className={cn(layer, loading && 'invisible')}>
+          <span className={cn(layer, loading && 'invisible')} aria-hidden={loading || undefined}>
             {icon}
             {children}
           </span>
-          <span className={cn(layer, !loading && 'invisible')}>
+          <span className={cn(layer, !loading && 'invisible')} aria-hidden={!loading || undefined}>
             {spinner}
             {loadingText}
           </span>

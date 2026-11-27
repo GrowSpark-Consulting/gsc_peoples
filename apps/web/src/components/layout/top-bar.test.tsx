@@ -27,6 +27,8 @@ const meBody = (data: Record<string, unknown>) => ({
 afterEach(() => {
   cleanup();
   vi.unstubAllGlobals();
+  // `/me` is shared per tab (one request for the shell, top bar and page); each test is a fresh tab.
+  resetSessionCache();
 });
 
 describe('TopBar user avatar', () => {
@@ -67,6 +69,7 @@ describe('TopBar user avatar', () => {
     await waitFor(() => expect(screen.getByRole('link', { name: /Your profile: ravi@dev.local · Employee/ })).toBeInTheDocument());
     unmount();
 
+    resetSessionCache(); // a new tab: nothing is known yet
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('offline'))));
     render(<TopBar {...props} />);
     const link = await screen.findByRole('link', { name: 'Your profile' });
