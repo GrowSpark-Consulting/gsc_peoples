@@ -11,5 +11,6 @@ export * from './onboarding';
 export * from './attendance';
 export * from './leave';
 export * from './documents';
+export * from './identity-documents';
 export * from './notifications';
 export * from './dashboards';

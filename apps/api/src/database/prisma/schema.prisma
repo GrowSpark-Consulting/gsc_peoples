@@ -131,6 +131,7 @@ model Company {
   leaveBalances          LeaveBalance[]
   leaveRequests          LeaveRequest[]
   documents              EmployeeDocument[]
+  identityDocuments      EmployeeIdentityDocument[]
   notifications          Notification[]
   sessions               UserSession[]
   passwordResets         PasswordResetToken[]
@@ -324,6 +325,7 @@ model Employee {
   leaveBalances    LeaveBalance[]
   leaveRequests    LeaveRequest[]
   documents        EmployeeDocument[]     @relation("EmployeeDocuments")
+  identityDocuments EmployeeIdentityDocument[]
 
   @@unique([companyId, id])
   @@unique([companyId, employeeNumber])
@@ -554,6 +556,48 @@ model EmployeeDocument {
   @@index([companyId, isCompanyDocument])
   @@index([companyId, deletedAt])
   @@map("employee_documents")
+}
+
+enum IdentityDocumentType {
+  AADHAAR
+  PAN
+  DRIVING_LICENCE
+  VOTER_ID
+}
+
+/// Government ID / identity proof. At most one ACTIVE row per employee (partial unique index in SQL).
+/// Rows are never edited in place: a replacement soft-deletes the current row and inserts a new one, so the
+/// previous files stay recoverable until the retention purge removes them. The full number is stored only as
+/// AES-256-GCM ciphertext (application key); `numberLast4` exists solely for the masked display.
+model EmployeeIdentityDocument {
+  id                      String               @id @default(uuid())
+  companyId               String
+  employeeId              String
+  documentType            IdentityDocumentType
+  numberCiphertext        String
+  numberLast4             String
+  frontPath               String
+  frontMimeType           String
+  frontSizeBytes          Int
+  backPath                String?
+  backMimeType            String?
+  backSizeBytes           Int?
+  consentRecordedAt       DateTime
+  consentRecordedByUserId String?
+  uploadedByUserId        String?
+  firstUploadedAt         DateTime
+  deletedAt               DateTime?
+  purgeAfterAt            DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @default(now()) @updatedAt
+
+  company  Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, onUpdate: Restrict)
+
+  @@unique([companyId, id])
+  @@index([companyId, employeeId])
+  @@index([companyId, deletedAt])
+  @@map("employee_identity_documents")
 }
 
 model Notification {

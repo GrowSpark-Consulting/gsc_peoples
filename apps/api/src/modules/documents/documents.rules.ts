@@ -39,3 +39,8 @@ export function cleanFileName(raw: string | undefined): string {
   const cleaned = base.replace(/[\u0000-\u001f\u007f"]/g, '').trim().slice(0, 255);
   return cleaned || 'document';
 }
+
+/** True when `buf` starts with a known signature for `mimeType` (PDF, PNG, JPEG, DOCX zip). */
+export function matchesSignature(mimeType: string, buf: Buffer): boolean {
+  return (SIGNATURES[mimeType] ?? []).some((s) => startsWith(buf, s));
+}

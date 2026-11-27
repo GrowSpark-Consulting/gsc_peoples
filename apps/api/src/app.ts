@@ -34,7 +34,9 @@ import { createOnboardingRouter } from './modules/onboarding/onboarding.routes';
 import { createAttendanceRouter } from './modules/attendance/attendance.routes';
 import { createLeaveRouter } from './modules/leave/leave.routes';
 import { createDocumentsRouter, createLocalFileRouter } from './modules/documents/documents.routes';
-import { createDocumentStorage, type DocumentStorage, type LocalDocumentStorage } from './integrations/storage';
+import { createDocumentStorage, createIdentityDocumentStorage, type DocumentStorage, type LocalDocumentStorage } from './integrations/storage';
+import { createIdentityDocumentsRouter } from './modules/identity-documents/identity-documents.routes';
+import { createIdentityCipher, type IdentityCipher } from './modules/identity-documents/identity-crypto';
 import { SessionAuthProvider } from './integrations/local-auth/session-provider';
 import { createMailer, type Mailer } from './integrations/mail';
 import { createInvitationService } from './modules/auth/invitations';
@@ -51,6 +53,10 @@ export interface AppDependencies {
   clock?: () => Date;
   /** Document object storage. Default: the driver selected by DOCUMENT_STORAGE_DRIVER. */
   documentStorage?: DocumentStorage;
+  /** Government ID storage (dedicated private bucket). Default: built from env. */
+  identityDocumentStorage?: DocumentStorage;
+  /** Government ID number encryption. Default: from IDENTITY_DOC_ENCRYPTION_KEY; `null` = not configured (503). */
+  identityCipher?: IdentityCipher | null;
   /** Outbound email. Default: the driver selected by MAIL_DRIVER. */
   mailer?: Mailer;
 }
@@ -100,6 +106,14 @@ export function createApp(deps: AppDependencies = {}): Express {
   // Local-driver (development) download links carry their own 60-second HMAC authorisation, like a Supabase
   // signed URL, so that one route sits before the session middleware. Never mounted for the supabase driver.
   if (documentStorage.driver === 'local') api.use('/documents', createLocalFileRouter(documentStorage as LocalDocumentStorage));
+  const identityStorage = deps.identityDocumentStorage ?? createIdentityDocumentStorage(env);
+  if (identityStorage.driver === 'local') api.use('/identity-documents', createLocalFileRouter(identityStorage as LocalDocumentStorage));
+  const identityCipher =
+    deps.identityCipher !== undefined
+      ? deps.identityCipher
+      : env.IDENTITY_DOC_ENCRYPTION_KEY
+        ? createIdentityCipher(env.IDENTITY_DOC_ENCRYPTION_KEY, env.IDENTITY_DOC_ENCRYPTION_KEY_VERSION)
+        : null;
 
   const prisma = isDatabaseConfigured() ? getPrisma() : undefined;
   // Cookie sessions live in PostgreSQL: without a database the session modes cannot authenticate anyone.
@@ -140,6 +154,8 @@ export function createApp(deps: AppDependencies = {}): Express {
     ? createInvitationService(tenantPrisma, { mailer, webAppUrl: env.WEB_APP_URL, exposeToken: env.NODE_ENV !== 'production' })
     : undefined;
   if (tenantPrisma && invitations) api.use('/settings', tenant, createSettingsRouter(tenantPrisma, tenantRunner, invitations));
+  // Government ID: its own router (and permissions), mounted before the employee routes.
+  api.use('/employees/:employeeId/identity-document', tenant, createIdentityDocumentsRouter({ runner: tenantRunner, storage: identityStorage, cipher: identityCipher }));
   api.use('/employees', tenant, createEmployeesRouter(createEmployeeService(createEmployeeRepository(tenantRunner), invitations)));
   // Keep legacy read-only departments endpoint for existing consumers, and also expose full org routes.
   api.use('/holidays', tenant, createHolidaysRouter(createHolidayRepository(tenantRunner)));

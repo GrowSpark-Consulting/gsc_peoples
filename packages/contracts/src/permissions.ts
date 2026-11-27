@@ -63,6 +63,15 @@ export const PERMISSIONS = {
   COMPANY_DOCUMENT_READ: 'company-document:read',
   COMPANY_DOCUMENT_WRITE: 'company-document:write',
 
+  // Government ID / identity proof. Deliberately separate from the general document permissions: managers get
+  // none of these for other people, and only Super Admin may ever see a full document number.
+  IDENTITY_DOCUMENT_READ_ALL: 'identity-document:read:all', // masked number + images, any employee
+  IDENTITY_DOCUMENT_READ_SELF: 'identity-document:read:self', // masked number + images, own record
+  IDENTITY_DOCUMENT_WRITE_ALL: 'identity-document:write:all', // submit/replace for any employee
+  IDENTITY_DOCUMENT_WRITE_SELF: 'identity-document:write:self', // submit/replace own record
+  IDENTITY_DOCUMENT_DELETE: 'identity-document:delete',
+  IDENTITY_DOCUMENT_REVEAL: 'identity-document:reveal', // full number, explicit and audited (Super Admin only)
+
   // Dashboards, notifications, audit (DASH-001..003, NOTIF-001, SET-004)
   DASHBOARD_ADMIN: 'dashboard:admin',
   DASHBOARD_MANAGER: 'dashboard:manager',
@@ -143,6 +152,8 @@ const EVERYONE: readonly Permission[] = [
   P.DOCUMENT_READ_SELF,
   P.DOCUMENT_UPLOAD_SELF,
   P.COMPANY_DOCUMENT_READ,
+  P.IDENTITY_DOCUMENT_READ_SELF,
+  P.IDENTITY_DOCUMENT_WRITE_SELF,
   P.NOTIFICATION_SELF,
 ];
 
@@ -222,6 +233,10 @@ const CANONICAL_ROLE_PERMISSIONS: Readonly<Record<RoleKey, readonly Permission[]
     P.DOCUMENT_UPLOAD_ALL,
     P.DOCUMENT_MANAGE,
     P.COMPANY_DOCUMENT_WRITE,
+    P.IDENTITY_DOCUMENT_READ_ALL,
+    P.IDENTITY_DOCUMENT_WRITE_ALL,
+    P.IDENTITY_DOCUMENT_DELETE,
+    P.IDENTITY_DOCUMENT_REVEAL,
     P.DASHBOARD_ADMIN,
     P.AUDIT_READ,
   ],
@@ -248,6 +263,9 @@ const CANONICAL_ROLE_PERMISSIONS: Readonly<Record<RoleKey, readonly Permission[]
     P.DOCUMENT_UPLOAD_ALL,
     P.DOCUMENT_MANAGE,
     P.COMPANY_DOCUMENT_WRITE,
+    P.IDENTITY_DOCUMENT_READ_ALL,
+    P.IDENTITY_DOCUMENT_WRITE_ALL,
+    P.IDENTITY_DOCUMENT_DELETE,
     P.DASHBOARD_ADMIN,
   ],
   MANAGER: [

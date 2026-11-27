@@ -83,7 +83,8 @@ export function TableBlockSkeleton({ rows = 6, columns = 5, className }: { rows?
 /** Titled surface card (shared `Section`) with a table inside. */
 function SectionSkeleton({ rows = 4, columns = 4 }: { rows?: number; columns?: number }) {
   return (
-    <div className={card}>
+    // min-w-0: as a grid item it must be allowed to shrink below its content at 320px.
+    <div className={cn('min-w-0', card)}>
       <div className="flex items-center justify-between gap-3 px-5 pt-4">
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-[30px] w-24 rounded-md" />
@@ -149,7 +150,7 @@ function ProfileSkeleton() {
       </div>
       <div className="grid gap-6 lg:grid-cols-2">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className={cn(card, 'flex flex-col gap-3 p-5')}>
+          <div key={i} className={cn(card, 'flex min-w-0 flex-col gap-3 p-5')}>
             <Skeleton className="h-6 w-36" />
             {[0, 1, 2, 3].map((j) => (
               <div key={j} className="flex items-center justify-between gap-4">

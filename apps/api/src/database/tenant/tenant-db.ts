@@ -24,6 +24,7 @@ const DELEGATES = {
   leaveBalance: 'LeaveBalance',
   leaveRequest: 'LeaveRequest',
   employeeDocument: 'EmployeeDocument',
+  employeeIdentityDocument: 'EmployeeIdentityDocument',
   notification: 'Notification',
   userSession: 'UserSession',
   passwordResetToken: 'PasswordResetToken',

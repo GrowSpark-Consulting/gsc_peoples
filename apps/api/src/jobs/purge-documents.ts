@@ -14,8 +14,9 @@
 import { env } from '../config/env';
 import { disconnectDatabase, getPrisma } from '../database/client';
 import { createTenantRunner } from '../database/tenant';
-import { createDocumentStorage } from '../integrations/storage';
-import { purgeAllCompanies } from '../modules/documents/retention';
+import { createDocumentStorage, createIdentityDocumentStorage } from '../integrations/storage';
+import { purgeAllCompanies, type PurgeResult } from '../modules/documents/retention';
+import { purgeExpiredIdentityDocuments } from '../modules/identity-documents/identity-retention';
 import { logger } from '../shared/utils/logger';
 import { parsePurgeArgs } from './purge-args';
 
@@ -28,9 +29,27 @@ async function main() {
     limit: options.limit,
     log: logger,
   });
-  const sum = (pick: (r: (typeof results)[number]) => number) => results.reduce((n, r) => n + pick(r), 0);
-  console.log(JSON.stringify({ mode: options.execute ? 'execute' : 'dry-run', companies: results.length, scanned: sum((r) => r.scanned), purged: sum((r) => r.purged), failed: sum((r) => r.failed) }));
-  return results.some((r) => r.failed > 0) ? 1 : 0;
+  // Government ID documents live in their own bucket and table; same retention period and safety rules.
+  const identityStorage = createIdentityDocumentStorage(env);
+  const identity: PurgeResult[] = [];
+  for (const companyId of options.companyIds) {
+    try {
+      identity.push(await purgeExpiredIdentityDocuments({ companyId, runner: createTenantRunner(getPrisma()), storage: identityStorage, dryRun: !options.execute, limit: options.limit, log: logger }));
+    } catch (e) {
+      logger.error({ companyId, reason: e instanceof Error ? e.name : 'unknown' }, 'identity document purge could not run for this company');
+      identity.push({ companyId, dryRun: !options.execute, scanned: 0, purged: 0, failed: 1, failedIds: [] });
+    }
+  }
+  const sum = (rs: PurgeResult[], pick: (r: PurgeResult) => number) => rs.reduce((n, r) => n + pick(r), 0);
+  console.log(JSON.stringify({
+    mode: options.execute ? 'execute' : 'dry-run',
+    companies: results.length,
+    scanned: sum(results, (r) => r.scanned),
+    purged: sum(results, (r) => r.purged),
+    failed: sum(results, (r) => r.failed),
+    identity: { scanned: sum(identity, (r) => r.scanned), purged: sum(identity, (r) => r.purged), failed: sum(identity, (r) => r.failed) },
+  }));
+  return [...results, ...identity].some((r) => r.failed > 0) ? 1 : 0;
 }
 
 try {

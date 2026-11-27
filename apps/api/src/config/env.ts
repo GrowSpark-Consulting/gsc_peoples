@@ -33,6 +33,28 @@ const envSchema = z
     SUPABASE_STORAGE_SERVICE_KEY: optionalString,
     /** Private bucket name. The bucket must be created as non-public (see docs/development/next-sprint-report.md). */
     SUPABASE_STORAGE_BUCKET: z.preprocess(emptyToUndefined, z.string().min(3).max(63).default('hr-documents')),
+    /**
+     * Government ID images: a DEDICATED private bucket, separate from SUPABASE_STORAGE_BUCKET. Create it as
+     * non-public in Supabase before enabling the feature; the API never creates or reconfigures buckets.
+     */
+    SUPABASE_IDENTITY_BUCKET: z.preprocess(emptyToUndefined, z.string().min(3).max(63).default('hr-identity-documents')),
+    /** Local-driver directory for government ID images (default ./storage/identity-documents). */
+    IDENTITY_DOCUMENTS_STORAGE_DIR: optionalString,
+    /**
+     * 32-byte key, base64, that encrypts government ID numbers at rest (AES-256-GCM). Secret: keep it in the
+     * hosting provider's environment secrets, never in the repository, never in the web app. When unset, the
+     * identity-document endpoints answer 503 and the rest of the API works normally.
+     * Generate with: node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+     */
+    IDENTITY_DOC_ENCRYPTION_KEY: z.preprocess(
+      emptyToUndefined,
+      z
+        .string()
+        .refine((v) => /^[A-Za-z0-9+/]+={0,2}$/.test(v) && Buffer.from(v, 'base64').length === 32, 'IDENTITY_DOC_ENCRYPTION_KEY must be 32 bytes, base64 encoded')
+        .optional(),
+    ),
+    /** Version tag written with each ciphertext, so a future key rotation can tell old and new apart. */
+    IDENTITY_DOC_ENCRYPTION_KEY_VERSION: z.preprocess(emptyToUndefined, z.coerce.number().int().min(1).max(999).default(1)),
     /** HMAC secret for the local driver's 60-second download links (development only; random per process when unset). */
     DOCUMENTS_LOCAL_SIGNING_SECRET: optionalString,
     /** Requests per minute and client IP for the whole API (the health check is exempt). Disabled when NODE_ENV=test. */
@@ -166,6 +188,9 @@ const envSchema = z
         path: ['DOCUMENT_STORAGE_DRIVER'],
         message: 'DOCUMENT_STORAGE_DRIVER=supabase is required when NODE_ENV=production (local disk does not survive a redeploy)',
       });
+    }
+    if (env.SUPABASE_IDENTITY_BUCKET === env.SUPABASE_STORAGE_BUCKET) {
+      ctx.addIssue({ code: 'custom', path: ['SUPABASE_IDENTITY_BUCKET'], message: 'SUPABASE_IDENTITY_BUCKET must be a different bucket from SUPABASE_STORAGE_BUCKET' });
     }
     if (env.DB_TARGET === 'supabase') {
       for (const k of ['SUPABASE_DATABASE_URL', 'SUPABASE_CA_CERT_PATH'] as const) {

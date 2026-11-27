@@ -160,3 +160,20 @@ describe('PRD section 5 matrix, by role', () => {
     expect(dashboardForRole('x')).toBeNull();
   });
 });
+
+describe('identity document permissions', () => {
+  const set = (r: 'SUPER_ADMIN' | 'HR_ADMIN' | 'MANAGER' | 'EMPLOYEE') => new Set(permissionsForRole(r));
+  const anyone = [PERMISSIONS.IDENTITY_DOCUMENT_READ_ALL, PERMISSIONS.IDENTITY_DOCUMENT_WRITE_ALL, PERMISSIONS.IDENTITY_DOCUMENT_DELETE];
+  it('only Super Admin may reveal a full number', () => {
+    expect(set('SUPER_ADMIN').has(PERMISSIONS.IDENTITY_DOCUMENT_REVEAL)).toBe(true);
+    for (const r of ['HR_ADMIN', 'MANAGER', 'EMPLOYEE'] as const) expect(set(r).has(PERMISSIONS.IDENTITY_DOCUMENT_REVEAL)).toBe(false);
+  });
+  it('Super Admin and HR read, write and delete for anyone; Manager and Employee only their own record', () => {
+    for (const r of ['SUPER_ADMIN', 'HR_ADMIN'] as const) for (const p of anyone) expect(set(r).has(p)).toBe(true);
+    for (const r of ['MANAGER', 'EMPLOYEE'] as const) {
+      for (const p of anyone) expect(set(r).has(p)).toBe(false);
+      expect(set(r).has(PERMISSIONS.IDENTITY_DOCUMENT_READ_SELF)).toBe(true);
+      expect(set(r).has(PERMISSIONS.IDENTITY_DOCUMENT_WRITE_SELF)).toBe(true);
+    }
+  });
+});

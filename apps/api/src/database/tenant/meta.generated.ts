@@ -73,6 +73,10 @@ export const tenantMeta: TenantMeta = {
         "target": "EmployeeDocument",
         "list": true
       },
+      "identityDocuments": {
+        "target": "EmployeeIdentityDocument",
+        "list": true
+      },
       "notifications": {
         "target": "Notification",
         "list": true
@@ -289,6 +293,10 @@ export const tenantMeta: TenantMeta = {
       "documents": {
         "target": "EmployeeDocument",
         "list": true
+      },
+      "identityDocuments": {
+        "target": "EmployeeIdentityDocument",
+        "list": true
       }
     }
   },
@@ -424,6 +432,19 @@ export const tenantMeta: TenantMeta = {
         "list": false
       },
       "owner": {
+        "target": "Employee",
+        "list": false
+      }
+    }
+  },
+  "EmployeeIdentityDocument": {
+    "hasCompanyId": true,
+    "relations": {
+      "company": {
+        "target": "Company",
+        "list": false
+      },
+      "employee": {
         "target": "Employee",
         "list": false
       }

@@ -17,10 +17,17 @@ const b64 = (b: Buffer | string) => Buffer.from(b).toString('base64url');
  * Disk-backed driver for development and tests, with the same contract as the private bucket: no permanent
  * URL, links are HMAC-signed and valid for the TTL only. Rejected in production by the env schema.
  */
-export function createLocalDocumentStorage(options: { root: string; secret?: string; now?: () => Date }): LocalDocumentStorage {
+export function createLocalDocumentStorage(options: {
+  root: string;
+  secret?: string;
+  now?: () => Date;
+  /** Path the matching `createLocalFileRouter` is mounted under (default: the documents router). */
+  routeBase?: string;
+}): LocalDocumentStorage {
   const root = path.resolve(options.root);
   const secret = options.secret ?? crypto.randomBytes(32).toString('hex');
   const clock = options.now ?? (() => new Date());
+  const routeBase = (options.routeBase ?? '/api/v1/documents').replace(/\/+$/, '');
 
   /** Keys are `<company>/<owner|company>/<uuid>`; anything that could leave `root` is refused. */
   function resolveKey(key: string): string {
@@ -48,7 +55,7 @@ export function createLocalDocumentStorage(options: { root: string; secret?: str
     async createSignedDownloadUrl(key: string, o: SignedUrlOptions) {
       resolveKey(key);
       const payload = b64(JSON.stringify({ k: key, e: clock().getTime() + o.expiresInSeconds * 1000, n: o.fileName ?? 'download', t: o.contentType ?? 'application/octet-stream', i: o.inline ? 1 : 0 }));
-      return `${(o.requestOrigin ?? '').replace(/\/+$/, '')}/api/v1/documents${LOCAL_FILE_ROUTE}/${payload}.${sign(payload)}`;
+      return `${(o.requestOrigin ?? '').replace(/\/+$/, '')}${routeBase}${LOCAL_FILE_ROUTE}/${payload}.${sign(payload)}`;
     },
 
     async readSigned(token: string, now: Date = clock()) {
